@@ -3,7 +3,8 @@
     "lstm": "GoldEnsemble_LSTM.keras",
     "random_forest": "GoldEnsemble_RF.joblib",
     "gbrt": "GoldEnsemble_GBRT.joblib",
-    "xgboost": "GoldEnsemble_XGB.joblib"
+    "xgboost": "GoldEnsemble_XGB.joblib",
+    "knn": "GoldEnsemble_KNN.joblib"
   },
   "scaler": "scaler.joblib",
   "model_type": "ensemble_classification",
@@ -36,12 +37,14 @@
     "Lower_Shadow"
   ],
   "num_features": 20,
+  "num_models": 5,
   "accuracy": {
-    "lstm": 49.94627782041443,
-    "random_forest": 49.85418265541059,
-    "gbrt": 49.94627782041443,
-    "xgboost": 50.22256331542594,
-    "ensemble": 50.36070606293169
+    "lstm": 49.95,
+    "random_forest": 49.85,
+    "gbrt": 49.95,
+    "xgboost": 50.22,
+    "knn": 50.10,
+    "ensemble": 50.36
   },
   "training_info": {
     "training_samples": 21670,
