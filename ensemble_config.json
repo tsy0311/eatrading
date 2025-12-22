@@ -1,0 +1,51 @@
+{
+  "models": {
+    "lstm": "GoldEnsemble_LSTM.keras",
+    "random_forest": "GoldEnsemble_RF.joblib",
+    "gbrt": "GoldEnsemble_GBRT.joblib",
+    "xgboost": "GoldEnsemble_XGB.joblib"
+  },
+  "scaler": "scaler.joblib",
+  "model_type": "ensemble_classification",
+  "classes": [
+    "DOWN (SELL)",
+    "UP (BUY)"
+  ],
+  "window_size": 30,
+  "timeframe": "H1",
+  "feature_columns": [
+    "MA_Cross_5_20",
+    "MA_Cross_10_50",
+    "Price_vs_SMA20",
+    "Price_vs_SMA50",
+    "Trend_Strength",
+    "RSI",
+    "RSI_Signal",
+    "RSI_Fast",
+    "MACD_Cross",
+    "MACD_Histogram",
+    "ROC_5",
+    "ROC_10",
+    "Momentum_3",
+    "Scalp_Cross",
+    "ATR_Pct",
+    "BB_Position",
+    "Volatility_Ratio",
+    "Body",
+    "Upper_Shadow",
+    "Lower_Shadow"
+  ],
+  "num_features": 20,
+  "accuracy": {
+    "lstm": 49.94627782041443,
+    "random_forest": 49.85418265541059,
+    "gbrt": 49.94627782041443,
+    "xgboost": 50.22256331542594,
+    "ensemble": 50.36070606293169
+  },
+  "training_info": {
+    "training_samples": 21670,
+    "test_samples": 6515,
+    "training_date": "2025-12-22T23:09:40.478309"
+  }
+}
