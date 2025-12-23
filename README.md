@@ -1,113 +1,128 @@
-# ⚡ Gold SCALPING System - Pure Technical Analysis
+# ⚡ Gold SCALPING System for MT5
 
-A machine learning trading system for **SCALPING XAUUSD (Gold)** using **PURE TECHNICAL INDICATORS ONLY**.
+Complete scalping system with ML training + MetaTrader 5 Expert Advisor.
 
-No fundamental factors - just price action and technical analysis.
+## 🔄 Two Core Files
 
-## ⚡ Scalping Configuration
-
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| **Prediction** | 2 hours | Short-term scalping horizon |
-| **Target** | 0.2% (20 pips) | Typical scalp profit target |
-| **Window** | 20 periods | Recent price history |
-| **Fundamentals** | NONE | Pure technical only |
-
-## 🤖 Models Used (5 Ensemble)
-
-| Model | Type | Description |
-|-------|------|-------------|
-| **LSTM** | Deep Learning | Sequential price patterns |
-| **Random Forest** | Ensemble | Decision tree voting |
-| **GBRT** | Boosting | Gradient boosted trees |
-| **XGBoost** | Boosting | Extreme gradient boosting |
-| **KNN** | Instance-Based | Similar pattern matching |
-
-## 📊 Pure Technical Features
-
-### Fast Oscillators
-- Stochastic K/D (14 and 5 period)
-- Williams %R
-- CCI (Commodity Channel Index)
-- RSI (14 and 5 period fast)
-
-### Trend Indicators
-- MA Crossovers (5/20, 10/50)
-- MACD with histogram
-- EMA 3/8 scalp cross
-
-### Price Action
-- Candlestick patterns (engulfing, wicks)
-- Body/shadow ratios
-- Consecutive up/down candles
-- Support/Resistance levels
-
-### Volatility
-- ATR percentage
-- Bollinger Band position
-- Volatility ratio
-
-## 🎯 Output
-
-```
-⚡ SCALPING SIGNAL
-
-📅 Time: 2025-12-23 14:00:00
-💰 Price: $2620.50
-
-🟢 BUY SIGNAL
-   Confidence: 78%
-   Model Agreement: 4/5
-
-📊 SCALP PLAN:
-   Entry:      $2620.50
-   Stop Loss:  $2615.25 (-5.25)
-   Take Profit: $2625.75 (+5.25)
-
-⚡ Signal Strength: STRONG
-```
-
-## 📁 Files
-
-| File | Description |
-|------|-------------|
-| `GoldPricePrediction_Training.ipynb` | Main training notebook |
-| `quick_predict.py` | Get instant signal |
-| `GoldEnsemble_*.keras/.joblib` | Trained models |
-| `scaler.joblib` | Feature scaler |
+| File | Purpose |
+|------|---------|
+| `GoldPricePrediction_Training.ipynb` | Train ML models in Python |
+| `GoldScalpingEA.mq5` | Execute trades in MT5 |
 
 ## 🚀 Quick Start
 
-### Get Instant Signal
+### Step 1: Train Models (Python)
 ```bash
-python quick_predict.py
+# Run the Jupyter notebook
+jupyter notebook GoldPricePrediction_Training.ipynb
+# Or run all cells in VS Code / Cursor
 ```
 
-### Full Training
-1. Open `GoldPricePrediction_Training.ipynb`
-2. Run all cells (Ctrl+Shift+Enter)
-3. Check signals in final cell
+### Step 2: Get Quick Signal (Python)
+```bash
+python quick_predict.py
+python quick_predict.py 2650.50  # with custom price
+```
 
-## 📈 Signal Interpretation
+### Step 3: Run EA in MT5
+1. Copy `GoldScalpingEA.mq5` to `MQL5/Experts/`
+2. Compile in MetaEditor
+3. Attach to XAUUSD chart (H1 recommended)
+4. Enable AutoTrading
 
-| Strength | Confidence | Agreement | Action |
-|----------|------------|-----------|--------|
-| 🔥 STRONG | ≥70% | 4-5/5 | Take the trade |
-| 📊 MODERATE | 60-70% | 3/5 | Consider carefully |
-| ⚠️ WEAK | <60% | <3/5 | Skip or wait |
+## ⚡ Scalping Configuration
 
-## ⚠️ Scalping Tips
+| Parameter | Value |
+|-----------|-------|
+| Prediction Horizon | 2 hours |
+| Target Move | 0.2% (20 pips) |
+| Stop Loss | 1.5x ATR |
+| Take Profit | 2x ATR |
+| Min Confidence | 60% |
 
-1. **Trade during high volume** - More movement
-2. **Use tight stops** - Scalping = small losses
-3. **Quick exits** - Don't hold scalp trades long
-4. **Spread matters** - Use broker with low spreads
-5. **Avoid news times** - Pure technical only
+## 📊 Technical Indicators (Same in Python & MQ5)
 
-## ⚠️ Disclaimer
+| Indicator | Python | MQ5 |
+|-----------|--------|-----|
+| EMA 9/21/50 | ✅ | ✅ |
+| RSI 14 | ✅ | ✅ |
+| RSI 5 (fast) | ✅ | ✅ |
+| MACD 12/26/9 | ✅ | ✅ |
+| Stochastic 14/3 | ✅ | ✅ |
+| Bollinger Bands 20 | ✅ | ✅ |
+| CCI 20 | ✅ | ✅ |
+| ATR 14 | ✅ | ✅ |
 
-This system is for educational purposes only. Trading involves substantial risk. Past performance doesn't guarantee future results. Never trade money you can't afford to lose.
+## 🎯 Signal Logic
+
+The same logic is used in both Python and MQ5:
+
+```
+BUY Signal when:
+✅ EMA9 > EMA21 (bullish)
+✅ Price > EMA50
+✅ RSI < 30 (oversold) OR RSI > 50
+✅ MACD > Signal line
+✅ Stochastic < 20 (oversold) OR K > D
+✅ Price at lower Bollinger Band
+
+SELL Signal when:
+✅ EMA9 < EMA21 (bearish)
+✅ Price < EMA50
+✅ RSI > 70 (overbought) OR RSI < 50
+✅ MACD < Signal line
+✅ Stochastic > 80 (overbought) OR K < D
+✅ Price at upper Bollinger Band
+```
+
+## 📈 Signal Strength
+
+| Confidence | Indicators | Action |
+|------------|------------|--------|
+| ≥70% | 6+/8 | 🔥 Strong - Trade |
+| 60-70% | 4-5/8 | 📊 Moderate - Consider |
+| <60% | <4/8 | ⚠️ Weak - Skip |
+
+## 📁 Files
+
+```
+eatrading/
+├── GoldPricePrediction_Training.ipynb  # Train models
+├── GoldScalpingEA.mq5                  # MT5 Expert Advisor
+├── quick_predict.py                    # Quick signal script
+├── GoldEnsemble_*.keras/.joblib        # Trained models
+├── scaler.joblib                       # Feature scaler
+├── ensemble_config.json                # Configuration
+└── XAUUSD_H1_*.csv                     # Price data
+```
+
+## ⚙️ MQ5 EA Parameters
+
+```cpp
+// Trade Settings
+LotSize = 0.1              // Fixed lot size
+RiskPercent = 1.0          // Risk % per trade
+MaxTrades = 3              // Max concurrent trades
+
+// Scalping
+ScalpTP_Pips = 20          // Take Profit
+ScalpSL_Pips = 15          // Stop Loss
+ATR_SL_Multiplier = 1.5    // ATR-based SL
+ATR_TP_Multiplier = 2.0    // ATR-based TP
+
+// Signal
+MinConfidence = 60         // Min confidence %
+MinIndicators = 4          // Min indicators agreeing
+```
+
+## ⚠️ Risk Warning
+
+Trading involves substantial risk. This system is for educational purposes. Always:
+- Use proper position sizing
+- Set stop losses
+- Never risk more than 1-2% per trade
+- Test on demo account first
 
 ## 📄 License
 
-MIT License - Use and modify freely.
+MIT License

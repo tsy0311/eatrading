@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-⚡ Gold SCALPING - Quick Prediction Script
-==========================================
-Pure Technical Analysis - NO Fundamentals!
+⚡ GOLD SCALPING - Complete Analysis & Signal
+=============================================
+Pure Technical Analysis with Full Trade Plan
 
 Usage: python quick_predict.py
+       python quick_predict.py 4483  (with custom price)
 """
 
 import numpy as np
@@ -12,6 +13,7 @@ import pandas as pd
 import joblib
 import json
 import os
+import sys
 from datetime import datetime
 
 # Suppress warnings
@@ -19,373 +21,653 @@ import warnings
 warnings.filterwarnings('ignore')
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-def load_models():
-    """Load all pre-trained models"""
-    print("="*60)
-    print("⚡ Loading SCALPING Models...")
-    print("="*60)
-    
-    models = {}
-    
-    # Load LSTM
-    try:
-        from tensorflow.keras.models import load_model
-        models['LSTM'] = load_model('GoldEnsemble_LSTM.keras', compile=False)
-        print("✅ LSTM loaded")
-    except Exception as e:
-        print(f"❌ LSTM failed: {e}")
-    
-    # Load Random Forest
-    try:
-        models['RandomForest'] = joblib.load('GoldEnsemble_RF.joblib')
-        print("✅ Random Forest loaded")
-    except Exception as e:
-        print(f"❌ Random Forest failed: {e}")
-    
-    # Load GBRT
-    try:
-        models['GBRT'] = joblib.load('GoldEnsemble_GBRT.joblib')
-        print("✅ GBRT loaded")
-    except Exception as e:
-        print(f"❌ GBRT failed: {e}")
-    
-    # Load XGBoost
-    try:
-        models['XGBoost'] = joblib.load('GoldEnsemble_XGB.joblib')
-        print("✅ XGBoost loaded")
-    except Exception as e:
-        print(f"❌ XGBoost failed: {e}")
-    
-    # Load KNN
-    try:
-        models['KNN'] = joblib.load('GoldEnsemble_KNN.joblib')
-        print("✅ KNN loaded")
-    except Exception as e:
-        print(f"❌ KNN failed: {e}")
-    
-    # Load Scaler
-    try:
-        scaler = joblib.load('scaler.joblib')
-        print("✅ Scaler loaded")
-    except Exception as e:
-        print(f"❌ Scaler failed: {e}")
-        scaler = None
-    
-    print(f"\n📊 Models loaded: {len(models)}/5")
-    return models, scaler
+# =============================================================================
+# LOAD DATA AND ADD ALL INDICATORS
+# =============================================================================
 
-def load_config():
-    """Load ensemble configuration"""
-    with open('ensemble_config.json', 'r') as f:
-        return json.load(f)
+def load_data(csv_path='XAUUSD_H1_201501020900_202512221100.csv'):
+    """Load price data"""
+    if not os.path.exists(csv_path):
+        print(f"❌ Data file not found: {csv_path}")
+        return None
+        
+    df = pd.read_csv(csv_path, sep='\t')
+    df = df.rename(columns={
+        '<DATE>': 'Date', '<TIME>': 'Time', '<OPEN>': 'Open',
+        '<HIGH>': 'High', '<LOW>': 'Low', '<CLOSE>': 'Close',
+        '<TICKVOL>': 'TickVolume', '<VOL>': 'Volume', '<SPREAD>': 'Spread'
+    })
+    df['Date'] = pd.to_datetime(df['Date'] + ' ' + df['Time'])
+    df = df.sort_values('Date').reset_index(drop=True)
+    return df
 
-def add_scalping_indicators(df):
-    """Add PURE TECHNICAL indicators for scalping - NO fundamentals"""
+def add_all_indicators(df):
+    """Add all technical indicators for complete analysis"""
     
-    # ========== MOVING AVERAGES (Short-term) ==========
-    df['SMA_5'] = df['Price'].rolling(5).mean()
-    df['SMA_10'] = df['Price'].rolling(10).mean()
-    df['SMA_20'] = df['Price'].rolling(20).mean()
-    df['SMA_50'] = df['Price'].rolling(50).mean()
-    df['EMA_3'] = df['Price'].ewm(span=3).mean()
-    df['EMA_8'] = df['Price'].ewm(span=8).mean()
+    # ========== MOVING AVERAGES ==========
+    df['EMA_9'] = df['Close'].ewm(span=9).mean()
+    df['EMA_21'] = df['Close'].ewm(span=21).mean()
+    df['EMA_50'] = df['Close'].ewm(span=50).mean()
+    df['SMA_5'] = df['Close'].rolling(5).mean()
+    df['SMA_20'] = df['Close'].rolling(20).mean()
+    df['SMA_50'] = df['Close'].rolling(50).mean()
+    df['EMA_3'] = df['Close'].ewm(span=3).mean()
+    df['EMA_8'] = df['Close'].ewm(span=8).mean()
     
-    # MA Crossovers
+    # MA Crosses
     df['MA_Cross_5_20'] = (df['SMA_5'] > df['SMA_20']).astype(int)
-    df['MA_Cross_10_50'] = (df['SMA_10'] > df['SMA_50']).astype(int)
+    df['MA_Cross_9_21'] = (df['EMA_9'] > df['EMA_21']).astype(int)
     df['Scalp_Cross'] = (df['EMA_3'] > df['EMA_8']).astype(int)
     
-    # Price vs SMAs
-    df['Price_vs_SMA20'] = (df['Price'] - df['SMA_20']) / df['SMA_20']
-    df['Price_vs_SMA50'] = (df['Price'] - df['SMA_50']) / df['SMA_50']
-    df['Trend_Strength'] = (df['SMA_5'] - df['SMA_50']) / df['SMA_50']
+    # Price vs MAs
+    df['Price_vs_EMA9'] = (df['Close'] - df['EMA_9']) / df['EMA_9']
+    df['Price_vs_EMA21'] = (df['Close'] - df['EMA_21']) / df['EMA_21']
+    df['Price_vs_EMA50'] = (df['Close'] - df['EMA_50']) / df['EMA_50']
+    df['Trend_Strength'] = (df['EMA_9'] - df['EMA_50']) / df['EMA_50']
     
-    # ========== RSI (Standard + Fast) ==========
-    delta = df['Price'].diff()
+    # ========== RSI ==========
+    delta = df['Close'].diff()
     gain = delta.where(delta > 0, 0).rolling(14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
     rs = gain / (loss + 1e-10)
     df['RSI'] = 100 - (100 / (1 + rs))
-    df['RSI_Signal'] = np.where(df['RSI'] < 30, 1, np.where(df['RSI'] > 70, -1, 0))
     
-    # Fast RSI (5-period)
+    # Fast RSI
     gain_fast = delta.where(delta > 0, 0).rolling(5).mean()
     loss_fast = (-delta.where(delta < 0, 0)).rolling(5).mean()
     rs_fast = gain_fast / (loss_fast + 1e-10)
     df['RSI_Fast'] = 100 - (100 / (1 + rs_fast))
     
     # ========== MACD ==========
-    ema12 = df['Price'].ewm(span=12).mean()
-    ema26 = df['Price'].ewm(span=26).mean()
-    macd = ema12 - ema26
-    signal = macd.ewm(span=9).mean()
-    df['MACD_Cross'] = (macd > signal).astype(int)
-    df['MACD_Histogram'] = (macd - signal) / df['Price']
+    ema12 = df['Close'].ewm(span=12).mean()
+    ema26 = df['Close'].ewm(span=26).mean()
+    df['MACD'] = ema12 - ema26
+    df['MACD_Signal'] = df['MACD'].ewm(span=9).mean()
+    df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
+    df['MACD_Cross'] = (df['MACD'] > df['MACD_Signal']).astype(int)
     
-    # ========== ROC & MOMENTUM ==========
-    df['ROC_5'] = df['Price'].pct_change(5)
-    df['ROC_10'] = df['Price'].pct_change(10)
-    df['Momentum_3'] = df['Price'].pct_change(3)
-    
-    # ========== STOCHASTIC (Key for Scalping) ==========
+    # ========== STOCHASTIC ==========
     low_14 = df['Low'].rolling(14).min()
     high_14 = df['High'].rolling(14).max()
-    df['Stoch_K'] = 100 * (df['Price'] - low_14) / (high_14 - low_14 + 1e-10)
+    df['Stoch_K'] = 100 * (df['Close'] - low_14) / (high_14 - low_14 + 1e-10)
     df['Stoch_D'] = df['Stoch_K'].rolling(3).mean()
-    df['Stoch_Signal'] = np.where(df['Stoch_K'] > df['Stoch_D'], 1, -1)
     
     # Fast Stochastic
     low_5 = df['Low'].rolling(5).min()
     high_5 = df['High'].rolling(5).max()
-    df['Stoch_Fast'] = 100 * (df['Price'] - low_5) / (high_5 - low_5 + 1e-10)
+    df['Stoch_Fast'] = 100 * (df['Close'] - low_5) / (high_5 - low_5 + 1e-10)
     
     # ========== WILLIAMS %R ==========
-    df['Williams_R'] = -100 * (high_14 - df['Price']) / (high_14 - low_14 + 1e-10)
+    df['Williams_R'] = -100 * (high_14 - df['Close']) / (high_14 - low_14 + 1e-10)
     
     # ========== CCI ==========
-    typical_price = (df['High'] + df['Low'] + df['Price']) / 3
+    typical_price = (df['High'] + df['Low'] + df['Close']) / 3
     sma_tp = typical_price.rolling(20).mean()
     mad = typical_price.rolling(20).apply(lambda x: np.abs(x - x.mean()).mean())
     df['CCI'] = (typical_price - sma_tp) / (0.015 * mad + 1e-10)
-    df['CCI_Signal'] = np.where(df['CCI'] > 100, -1, np.where(df['CCI'] < -100, 1, 0))
     
-    # ========== ATR & VOLATILITY ==========
+    # ========== ATR ==========
     high_low = df['High'] - df['Low']
-    high_close = abs(df['High'] - df['Price'].shift())
-    low_close = abs(df['Low'] - df['Price'].shift())
+    high_close = abs(df['High'] - df['Close'].shift())
+    low_close = abs(df['Low'] - df['Close'].shift())
     tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
     df['ATR'] = tr.rolling(14).mean()
-    df['ATR_Pct'] = df['ATR'] / df['Price']
+    df['ATR_Pct'] = df['ATR'] / df['Close']
     
-    # Bollinger Bands
-    bb_mid = df['Price'].rolling(20).mean()
-    bb_std = df['Price'].rolling(20).std()
-    df['BB_Position'] = (df['Price'] - bb_mid) / (2 * bb_std + 1e-10)
+    # ========== BOLLINGER BANDS ==========
+    df['BB_Mid'] = df['Close'].rolling(20).mean()
+    bb_std = df['Close'].rolling(20).std()
+    df['BB_Upper'] = df['BB_Mid'] + 2 * bb_std
+    df['BB_Lower'] = df['BB_Mid'] - 2 * bb_std
+    df['BB_Position'] = (df['Close'] - df['BB_Mid']) / (2 * bb_std + 1e-10)
     
-    # Volatility Ratio
-    df['Volatility'] = df['ATR_Pct'].rolling(10).mean()
-    df['Volatility_Ratio'] = df['ATR_Pct'] / (df['Volatility'] + 1e-10)
+    # ========== SWING LEVELS ==========
+    df['Swing_High'] = df['High'].rolling(10).max()
+    df['Swing_Low'] = df['Low'].rolling(10).min()
+    
+    # Fibonacci from swing
+    df['Fib_Range'] = df['Swing_High'] - df['Swing_Low']
+    df['Fib_382'] = df['Swing_High'] - 0.382 * df['Fib_Range']
+    df['Fib_500'] = df['Swing_High'] - 0.500 * df['Fib_Range']
+    df['Fib_618'] = df['Swing_High'] - 0.618 * df['Fib_Range']
     
     # ========== PRICE ACTION ==========
-    df['Body'] = (df['Price'] - df['Open']) / df['Open']
-    df['Upper_Shadow'] = (df['High'] - df[['Open', 'Price']].max(axis=1)) / df['Open']
-    df['Lower_Shadow'] = (df[['Open', 'Price']].min(axis=1) - df['Low']) / df['Open']
-    
-    # Candle size
-    df['Candle_Size'] = abs(df['Price'] - df['Open']) / (df['ATR'] + 1e-10)
-    
-    # Wick ratios
-    candle_range = df['High'] - df['Low'] + 1e-10
-    df['Upper_Wick_Ratio'] = (df['High'] - df[['Open', 'Price']].max(axis=1)) / candle_range
-    df['Lower_Wick_Ratio'] = (df[['Open', 'Price']].min(axis=1) - df['Low']) / candle_range
-    
-    # Engulfing pattern
-    df['Prev_Body'] = (df['Price'].shift(1) - df['Open'].shift(1)).abs()
-    df['Curr_Body'] = (df['Price'] - df['Open']).abs()
-    df['Up_Candle'] = (df['Price'] > df['Open']).astype(int)
-    df['Engulfing'] = ((df['Curr_Body'] > df['Prev_Body'] * 1.5) & 
-                       (df['Up_Candle'] != df['Up_Candle'].shift(1))).astype(int)
+    df['Body'] = (df['Close'] - df['Open']) / df['Open']
+    df['Up_Candle'] = (df['Close'] > df['Open']).astype(int)
+    df['Candle_Range'] = df['High'] - df['Low']
+    df['Upper_Wick'] = (df['High'] - df[['Open', 'Close']].max(axis=1)) / (df['Candle_Range'] + 1e-10)
+    df['Lower_Wick'] = (df[['Open', 'Close']].min(axis=1) - df['Low']) / (df['Candle_Range'] + 1e-10)
     
     # Consecutive candles
     df['Consecutive_Up'] = df['Up_Candle'].rolling(3).sum()
-    df['Consecutive_Down'] = 3 - df['Consecutive_Up']
     
-    # ========== SUPPORT/RESISTANCE ==========
-    df['Recent_High'] = df['High'].rolling(10).max()
-    df['Recent_Low'] = df['Low'].rolling(10).min()
-    df['Near_Resistance'] = (df['Price'] > df['Recent_High'] * 0.998).astype(int)
-    df['Near_Support'] = (df['Price'] < df['Recent_Low'] * 1.002).astype(int)
-    df['Dist_From_High'] = (df['Recent_High'] - df['Price']) / df['Price']
-    df['Dist_From_Low'] = (df['Price'] - df['Recent_Low']) / df['Price']
+    # Engulfing
+    df['Prev_Body'] = (df['Close'].shift(1) - df['Open'].shift(1)).abs()
+    df['Curr_Body'] = (df['Close'] - df['Open']).abs()
+    df['Engulfing'] = ((df['Curr_Body'] > df['Prev_Body'] * 1.5) & 
+                       (df['Up_Candle'] != df['Up_Candle'].shift(1))).astype(int)
+    
+    # Support/Resistance
+    df['Near_Resistance'] = (df['Close'] > df['Swing_High'] * 0.998).astype(int)
+    df['Near_Support'] = (df['Close'] < df['Swing_Low'] * 1.002).astype(int)
+    
+    # Momentum
+    df['ROC_5'] = df['Close'].pct_change(5)
+    df['ROC_10'] = df['Close'].pct_change(10)
+    df['Momentum_3'] = df['Close'].pct_change(3)
+    
+    # Volatility
+    df['Volatility'] = df['ATR_Pct'].rolling(10).mean()
+    df['Volatility_Ratio'] = df['ATR_Pct'] / (df['Volatility'] + 1e-10)
     
     return df
 
-def prepare_latest_data(df, config, scaler):
-    """Prepare the latest data for prediction"""
-    window_size = config['window_size']
-    feature_columns = config['feature_columns']
+# =============================================================================
+# ANALYSIS FUNCTIONS
+# =============================================================================
+
+def get_trend(df):
+    """Determine current trend"""
+    row = df.iloc[-1]
+    price = row['Close']
     
-    # Add indicators
-    df = add_scalping_indicators(df)
-    df = df.dropna()
-    
-    # Filter to available features
-    available_features = [col for col in feature_columns if col in df.columns]
-    
-    # Get latest window
-    latest = df[available_features].iloc[-window_size:].values
-    
-    # Scale
-    if scaler:
-        latest_scaled = scaler.transform(latest)
+    if row['EMA_9'] > row['EMA_21'] > row['EMA_50']:
+        return "STRONG UPTREND ↑↑", "bullish", 2
+    elif row['EMA_9'] > row['EMA_21']:
+        return "UPTREND ↑", "bullish", 1
+    elif row['EMA_9'] < row['EMA_21'] < row['EMA_50']:
+        return "STRONG DOWNTREND ↓↓", "bearish", -2
+    elif row['EMA_9'] < row['EMA_21']:
+        return "DOWNTREND ↓", "bearish", -1
     else:
-        latest_scaled = latest
-    
-    return latest_scaled, df.iloc[-1], len(available_features)
+        return "RANGING ↔", "neutral", 0
 
-def get_predictions(models, data_3d, data_flat, num_features=20):
-    """Get predictions from all models"""
-    predictions = {}
-    probabilities = {}
+def is_retracement(df, price=None):
+    """Check if current move is a retracement (pullback in trend)"""
+    row = df.iloc[-1]
+    if price is None:
+        price = row['Close']
+        
+    trend, bias, strength = get_trend(df)
     
-    for name, model in models.items():
-        try:
-            if name == 'LSTM':
-                proba = model.predict(data_3d, verbose=0)[0]
-            elif name in ['RandomForest', 'XGBoost', 'KNN']:
-                # Use appropriate number of features
-                expected_features = 20 * num_features  # window * features
-                if data_flat.shape[1] >= expected_features:
-                    data_tree = data_flat[:, -expected_features:]
-                else:
-                    data_tree = data_flat
-                proba = model.predict_proba(data_tree)[0]
-            elif name == 'GBRT':
-                # GBRT uses reduced features
-                expected_features = 10 * num_features
-                if data_flat.shape[1] >= expected_features:
-                    data_reduced = data_flat[:, -expected_features:]
-                else:
-                    data_reduced = data_flat
-                proba = model.predict_proba(data_reduced)[0]
+    result = {
+        'is_retracement': False,
+        'type': None,
+        'message': "",
+        'action': ""
+    }
+    
+    # In uptrend
+    if strength > 0:
+        if price < row['EMA_9'] and price > row['EMA_21']:
+            result['is_retracement'] = True
+            result['type'] = "PULLBACK"
+            result['message'] = f"Price pulled back below EMA9 (${row['EMA_9']:.2f}) but holding above EMA21 (${row['EMA_21']:.2f})"
+            result['action'] = "GOOD BUY ZONE - Look for bullish confirmation"
+        elif price < row['EMA_21'] and price > row['EMA_50']:
+            result['is_retracement'] = True
+            result['type'] = "DEEP PULLBACK"
+            result['message'] = f"Deep pullback to EMA50 zone (${row['EMA_50']:.2f})"
+            result['action'] = "EXCELLENT BUY ZONE - High reward setup"
+        elif row['RSI'] < 40:
+            result['is_retracement'] = True
+            result['type'] = "RSI OVERSOLD"
+            result['message'] = f"RSI oversold ({row['RSI']:.1f}) in uptrend"
+            result['action'] = "BUY on RSI recovery above 40"
+        else:
+            result['message'] = "Trend continuation - not a pullback"
+            result['action'] = "Wait for pullback or breakout entry"
             
-            pred = np.argmax(proba)
-            predictions[name] = pred
-            probabilities[name] = proba
-        except Exception as e:
-            print(f"⚠️ {name} prediction failed: {e}")
-    
-    return predictions, probabilities
+    # In downtrend
+    elif strength < 0:
+        if price > row['EMA_9'] and price < row['EMA_21']:
+            result['is_retracement'] = True
+            result['type'] = "BOUNCE"
+            result['message'] = f"Price bounced above EMA9 (${row['EMA_9']:.2f}) but below EMA21 (${row['EMA_21']:.2f})"
+            result['action'] = "GOOD SELL ZONE - Look for bearish confirmation"
+        elif price > row['EMA_21'] and price < row['EMA_50']:
+            result['is_retracement'] = True
+            result['type'] = "DEEP BOUNCE"
+            result['message'] = f"Deep bounce to EMA50 zone (${row['EMA_50']:.2f})"
+            result['action'] = "EXCELLENT SELL ZONE - High reward setup"
+        elif row['RSI'] > 60:
+            result['is_retracement'] = True
+            result['type'] = "RSI OVERBOUGHT"
+            result['message'] = f"RSI overbought ({row['RSI']:.1f}) in downtrend"
+            result['action'] = "SELL on RSI rejection below 60"
+        else:
+            result['message'] = "Trend continuation - not a bounce"
+            result['action'] = "Wait for bounce or breakdown entry"
+    else:
+        result['message'] = "Market ranging - no clear trend"
+        result['action'] = "Wait for breakout"
+        
+    return result
 
-def ensemble_vote(predictions, probabilities):
-    """Combine predictions using soft voting"""
-    if not probabilities:
-        return 0, 0.5, 0
+def get_signal(df, price=None):
+    """Get BUY/SELL signal with confidence"""
+    row = df.iloc[-1]
+    if price is None:
+        price = row['Close']
+        
+    buy_score = 0
+    sell_score = 0
+    buy_reasons = []
+    sell_reasons = []
     
-    # Average probabilities
-    all_proba = np.array(list(probabilities.values()))
-    avg_proba = np.mean(all_proba, axis=0)
+    # EMA Trend (weight: 2)
+    if row['EMA_9'] > row['EMA_21']:
+        buy_score += 2
+        buy_reasons.append("EMA9 > EMA21 (bullish)")
+    else:
+        sell_score += 2
+        sell_reasons.append("EMA9 < EMA21 (bearish)")
+        
+    # Price vs EMA50 (weight: 2)
+    if price > row['EMA_50']:
+        buy_score += 2
+        buy_reasons.append("Price above EMA50")
+    else:
+        sell_score += 2
+        sell_reasons.append("Price below EMA50")
+        
+    # RSI (weight: 2)
+    if row['RSI'] < 30:
+        buy_score += 3
+        buy_reasons.append(f"RSI OVERSOLD ({row['RSI']:.1f}) - Strong BUY")
+    elif row['RSI'] > 70:
+        sell_score += 3
+        sell_reasons.append(f"RSI OVERBOUGHT ({row['RSI']:.1f}) - Strong SELL")
+    elif row['RSI'] > 50:
+        buy_score += 1
+        buy_reasons.append(f"RSI bullish ({row['RSI']:.1f})")
+    else:
+        sell_score += 1
+        sell_reasons.append(f"RSI bearish ({row['RSI']:.1f})")
+        
+    # MACD (weight: 2)
+    if row['MACD'] > row['MACD_Signal']:
+        buy_score += 2
+        if row['MACD_Hist'] > 0:
+            buy_reasons.append("MACD bullish + histogram positive")
+        else:
+            buy_reasons.append("MACD bullish cross")
+    else:
+        sell_score += 2
+        if row['MACD_Hist'] < 0:
+            sell_reasons.append("MACD bearish + histogram negative")
+        else:
+            sell_reasons.append("MACD bearish cross")
+            
+    # Stochastic (weight: 1)
+    if row['Stoch_K'] < 20:
+        buy_score += 2
+        buy_reasons.append(f"Stochastic OVERSOLD ({row['Stoch_K']:.1f})")
+    elif row['Stoch_K'] > 80:
+        sell_score += 2
+        sell_reasons.append(f"Stochastic OVERBOUGHT ({row['Stoch_K']:.1f})")
+    elif row['Stoch_K'] > row['Stoch_D']:
+        buy_score += 1
+        buy_reasons.append("Stochastic bullish")
+    else:
+        sell_score += 1
+        sell_reasons.append("Stochastic bearish")
+        
+    # Bollinger Bands (weight: 1)
+    if price < row['BB_Lower']:
+        buy_score += 2
+        buy_reasons.append("Price at LOWER BB (oversold)")
+    elif price > row['BB_Upper']:
+        sell_score += 2
+        sell_reasons.append("Price at UPPER BB (overbought)")
+        
+    # Scalp Cross (weight: 1)
+    if row['Scalp_Cross'] == 1:
+        buy_score += 1
+        buy_reasons.append("Fast EMA bullish (3>8)")
+    else:
+        sell_score += 1
+        sell_reasons.append("Fast EMA bearish (3<8)")
+        
+    # Calculate confidence
+    total = buy_score + sell_score
+    if buy_score > sell_score:
+        confidence = (buy_score / total) * 100
+        return "BUY", confidence, buy_reasons, sell_reasons
+    elif sell_score > buy_score:
+        confidence = (sell_score / total) * 100
+        return "SELL", confidence, sell_reasons, buy_reasons
+    else:
+        return "HOLD", 50, buy_reasons, sell_reasons
+
+def get_sl_tp(df, direction, price=None):
+    """Calculate Stop Loss and Take Profit levels"""
+    row = df.iloc[-1]
+    if price is None:
+        price = row['Close']
+        
+    atr = row['ATR']
     
-    ensemble_pred = np.argmax(avg_proba)
-    ensemble_conf = np.max(avg_proba)
+    if direction.upper() == "BUY":
+        # SL below swing low or 1.5x ATR
+        sl_swing = row['Swing_Low'] - 2
+        sl_atr = price - (atr * 1.5)
+        sl = max(sl_swing, sl_atr)
+        
+        risk = price - sl
+        tp1 = price + risk * 1.0   # 1:1
+        tp2 = price + risk * 1.5   # 1:1.5
+        tp3 = price + risk * 2.0   # 1:2
+        
+    else:  # SELL
+        # SL above swing high or 1.5x ATR
+        sl_swing = row['Swing_High'] + 2
+        sl_atr = price + (atr * 1.5)
+        sl = min(sl_swing, sl_atr)
+        
+        risk = sl - price
+        tp1 = price - risk * 1.0   # 1:1
+        tp2 = price - risk * 1.5   # 1:1.5
+        tp3 = price - risk * 2.0   # 1:2
+        
+    return {
+        'direction': direction.upper(),
+        'entry': round(price, 2),
+        'sl': round(sl, 2),
+        'tp1': round(tp1, 2),
+        'tp2': round(tp2, 2),
+        'tp3': round(tp3, 2),
+        'risk_pips': round(abs(price - sl), 2),
+        'atr': round(atr, 2)
+    }
+
+def calculate_risk(entry, sl, lot_size=0.1):
+    """Calculate potential loss if SL is hit"""
+    risk_pips = abs(entry - sl)
+    # Gold: ~$10 per pip per 1.0 lot
+    pip_value = 10
+    loss = risk_pips * pip_value * lot_size
+    return {
+        'entry': entry,
+        'sl': sl,
+        'lot_size': lot_size,
+        'risk_pips': round(risk_pips, 2),
+        'total_loss': round(loss, 2)
+    }
+
+def when_valid(df, direction, price=None):
+    """Check when BUY or SELL setup is valid"""
+    row = df.iloc[-1]
+    if price is None:
+        price = row['Close']
+        
+    conditions = []
+    valid_count = 0
     
-    # Count agreement
-    agreement = sum(1 for p in predictions.values() if p == ensemble_pred)
+    if direction.upper() == "BUY":
+        # Condition 1: Price above EMAs
+        if price > row['EMA_9'] and price > row['EMA_21']:
+            conditions.append("✅ Price above EMA9 & EMA21")
+            valid_count += 1
+        else:
+            conditions.append(f"❌ Need price above EMA9 (${row['EMA_9']:.2f}) & EMA21 (${row['EMA_21']:.2f})")
+            
+        # Condition 2: RSI
+        if row['RSI'] > 50 or row['RSI'] < 30:
+            conditions.append(f"✅ RSI favorable ({row['RSI']:.1f})")
+            valid_count += 1
+        else:
+            conditions.append(f"❌ Need RSI > 50 or oversold (current: {row['RSI']:.1f})")
+            
+        # Condition 3: MACD
+        if row['MACD'] > row['MACD_Signal']:
+            conditions.append("✅ MACD bullish")
+            valid_count += 1
+        else:
+            conditions.append("❌ Need MACD bullish cross")
+            
+        # Condition 4: Higher low
+        recent_lows = df['Low'].iloc[-5:]
+        if recent_lows.iloc[-1] > recent_lows.min():
+            conditions.append("✅ Higher low forming")
+            valid_count += 1
+        else:
+            conditions.append("❌ No higher low yet")
+            
+        zone = f"${row['Fib_500']:.2f} - ${row['Fib_618']:.2f}"
+        ideal = row['EMA_21']
+        
+    else:  # SELL
+        # Condition 1: Price below EMAs
+        if price < row['EMA_9'] and price < row['EMA_21']:
+            conditions.append("✅ Price below EMA9 & EMA21")
+            valid_count += 1
+        else:
+            conditions.append(f"❌ Need price below EMA9 (${row['EMA_9']:.2f}) & EMA21 (${row['EMA_21']:.2f})")
+            
+        # Condition 2: RSI
+        if row['RSI'] < 50 or row['RSI'] > 70:
+            conditions.append(f"✅ RSI favorable ({row['RSI']:.1f})")
+            valid_count += 1
+        else:
+            conditions.append(f"❌ Need RSI < 50 or overbought (current: {row['RSI']:.1f})")
+            
+        # Condition 3: MACD
+        if row['MACD'] < row['MACD_Signal']:
+            conditions.append("✅ MACD bearish")
+            valid_count += 1
+        else:
+            conditions.append("❌ Need MACD bearish cross")
+            
+        # Condition 4: Lower high
+        recent_highs = df['High'].iloc[-5:]
+        if recent_highs.iloc[-1] < recent_highs.max():
+            conditions.append("✅ Lower high forming")
+            valid_count += 1
+        else:
+            conditions.append("❌ No lower high yet")
+            
+        zone = f"${row['Fib_382']:.2f} - ${row['Fib_500']:.2f}"
+        ideal = row['EMA_21']
+        
+    return {
+        'valid': valid_count >= 3,
+        'score': f"{valid_count}/4",
+        'conditions': conditions,
+        'entry_zone': zone,
+        'ideal_entry': round(ideal, 2)
+    }
+
+def stacking_advice(df, position, price=None):
+    """Advice on adding to position (stacking)"""
+    row = df.iloc[-1]
+    if price is None:
+        price = row['Close']
+        
+    trend, bias, strength = get_trend(df)
+    advice = []
+    can_stack = False
     
-    return ensemble_pred, ensemble_conf, agreement
+    if position.upper() == "BUY":
+        if strength > 0:
+            advice.append(f"✅ Trend is {trend} - stacking possible")
+            
+            if price < row['EMA_9'] and price > row['EMA_21']:
+                advice.append(f"✅ GOOD ZONE: Pullback to ${price:.2f}")
+                advice.append(f"   Stack near EMA21: ${row['EMA_21']:.2f}")
+                can_stack = True
+            elif price < row['EMA_21'] and price > row['EMA_50']:
+                advice.append(f"✅ EXCELLENT ZONE: Deep pullback")
+                advice.append(f"   Stack near EMA50: ${row['EMA_50']:.2f}")
+                can_stack = True
+            else:
+                advice.append(f"⚠️ Wait for pullback to EMA9 (${row['EMA_9']:.2f}) or EMA21")
+                
+            if row['RSI'] < 40:
+                advice.append("✅ RSI oversold - good stack level")
+                can_stack = True
+        else:
+            advice.append("❌ Trend NOT bullish - DO NOT stack buys")
+            advice.append("   Consider closing or reducing position")
+            
+    else:  # SELL
+        if strength < 0:
+            advice.append(f"✅ Trend is {trend} - stacking possible")
+            
+            if price > row['EMA_9'] and price < row['EMA_21']:
+                advice.append(f"✅ GOOD ZONE: Bounce to ${price:.2f}")
+                advice.append(f"   Stack near EMA21: ${row['EMA_21']:.2f}")
+                can_stack = True
+            elif price > row['EMA_21'] and price < row['EMA_50']:
+                advice.append(f"✅ EXCELLENT ZONE: Deep bounce")
+                advice.append(f"   Stack near EMA50: ${row['EMA_50']:.2f}")
+                can_stack = True
+            else:
+                advice.append(f"⚠️ Wait for bounce to EMA9 (${row['EMA_9']:.2f}) or EMA21")
+                
+            if row['RSI'] > 60:
+                advice.append("✅ RSI overbought - good stack level")
+                can_stack = True
+        else:
+            advice.append("❌ Trend NOT bearish - DO NOT stack sells")
+            advice.append("   Consider closing or reducing position")
+            
+    return {
+        'can_stack': can_stack,
+        'trend': trend,
+        'advice': advice
+    }
+
+# =============================================================================
+# MAIN OUTPUT
+# =============================================================================
 
 def main():
-    print("\n" + "="*60)
-    print("⚡ GOLD SCALPING - PURE TECHNICAL SIGNAL")
-    print("="*60 + "\n")
+    # Check for custom price argument
+    custom_price = None
+    if len(sys.argv) > 1:
+        try:
+            custom_price = float(sys.argv[1])
+        except:
+            pass
     
-    # Check if data file exists
-    csv_file = 'XAUUSD_H1_201501020900_202512221100.csv'
-    if not os.path.exists(csv_file):
-        print(f"❌ Data file not found: {csv_file}")
+    print("\n" + "="*65)
+    print("⚡ GOLD SCALPING - COMPLETE ANALYSIS (Pure Technical)")
+    print("="*65)
+    
+    # Load data
+    df = load_data()
+    if df is None:
         return
+        
+    # Add indicators
+    df = add_all_indicators(df)
+    df = df.dropna()
     
-    # Load models
-    models, scaler = load_models()
-    if len(models) == 0:
-        print("❌ No models loaded. Please run the notebook first.")
-        return
+    row = df.iloc[-1]
+    price = custom_price if custom_price else row['Close']
     
-    # Load config
-    config = load_config()
+    # ===== HEADER =====
+    print(f"\n📅 Date: {row['Date']}")
+    print(f"💰 Price: ${price:.2f}" + (" (custom)" if custom_price else ""))
     
-    # Load and prepare data
-    print("\n" + "="*60)
-    print("📊 Analyzing Price Action...")
-    print("="*60)
+    # ===== TREND =====
+    trend, bias, strength = get_trend(df)
+    print(f"\n{'='*65}")
+    print(f"📈 TREND: {trend}")
+    print(f"{'='*65}")
     
-    df = pd.read_csv(csv_file, sep='\t')
-    df = df.rename(columns={
-        '<DATE>': 'Date', '<TIME>': 'Time', '<OPEN>': 'Open',
-        '<HIGH>': 'High', '<LOW>': 'Low', '<CLOSE>': 'Price',
-        '<TICKVOL>': 'TickVolume', '<VOL>': 'Volume', '<SPREAD>': 'Spread'
-    })
-    df['Date'] = pd.to_datetime(df['Date'] + ' ' + df['Time'])
-    df = df.sort_values('Date').reset_index(drop=True)
+    # ===== SIGNAL =====
+    signal, confidence, reasons_for, reasons_against = get_signal(df, price)
+    emoji = "🟢" if signal == "BUY" else "🔴" if signal == "SELL" else "⚪"
     
-    # Prepare latest window
-    latest_scaled, latest_row, num_features = prepare_latest_data(df, config, scaler)
+    print(f"\n{emoji} SIGNAL: {signal} ({confidence:.0f}% confidence)")
+    print(f"\n   ✅ Reasons FOR {signal}:")
+    for r in reasons_for[:4]:
+        print(f"      • {r}")
+    print(f"\n   ⚠️ Against:")
+    for r in reasons_against[:3]:
+        print(f"      • {r}")
     
-    # Reshape for models
-    data_3d = latest_scaled.reshape(1, config['window_size'], -1)
-    data_flat = latest_scaled.flatten().reshape(1, -1)
-    
-    # Get predictions
-    predictions, probabilities = get_predictions(models, data_3d, data_flat, num_features)
-    
-    # Ensemble vote
-    ensemble_pred, ensemble_conf, agreement = ensemble_vote(predictions, probabilities)
-    
-    # Get ATR for stop loss/take profit (scalping = tight)
-    df_with_indicators = add_scalping_indicators(df.copy())
-    current_atr = df_with_indicators['ATR'].iloc[-1]
-    current_price = latest_row['Price']
-    
-    # Print results
-    print("\n" + "="*60)
-    print("⚡ SCALPING SIGNAL (Pure Technical)")
-    print("="*60)
-    
-    signal_map = {0: ('🔴 SELL', 'Short'), 1: ('🟢 BUY', 'Long')}
-    signal_text, position = signal_map.get(ensemble_pred, ('⚪ HOLD', 'None'))
-    
-    print(f"\n📅 Time: {latest_row['Date']}")
-    print(f"💰 Price: ${current_price:.2f}")
-    
-    print(f"\n{signal_text} ({position})")
-    print(f"   Confidence: {ensemble_conf*100:.1f}%")
-    print(f"   Model Agreement: {agreement}/{len(models)}")
-    
-    print("\n📊 MODEL BREAKDOWN:")
-    print("-"*40)
-    for name, pred in predictions.items():
-        direction = "SELL ↓" if pred == 0 else "BUY ↑"
-        conf = max(probabilities[name]) * 100
-        print(f"   {name:<15}: {direction} ({conf:.1f}%)")
-    
-    # Scalping plan (tight stops)
-    scalp_sl = current_atr * 1.0  # 1x ATR stop loss (tight for scalping)
-    scalp_tp = current_atr * 1.5  # 1.5x ATR take profit (1:1.5 RR)
-    
-    print("\n" + "="*60)
-    print(f"⚡ SCALP PLAN ({signal_text})")
-    print("="*60)
-    
-    if ensemble_pred == 1:  # BUY
-        sl = current_price - scalp_sl
-        tp = current_price + scalp_tp
-        print(f"   Entry:       ${current_price:.2f}")
-        print(f"   Stop Loss:   ${sl:.2f} (-${scalp_sl:.2f})")
-        print(f"   Take Profit: ${tp:.2f} (+${scalp_tp:.2f})")
-    else:  # SELL
-        sl = current_price + scalp_sl
-        tp = current_price - scalp_tp
-        print(f"   Entry:       ${current_price:.2f}")
-        print(f"   Stop Loss:   ${sl:.2f} (+${scalp_sl:.2f})")
-        print(f"   Take Profit: ${tp:.2f} (-${scalp_tp:.2f})")
-    
-    print(f"   Risk/Reward: 1:1.5")
-    
-    # Signal strength
-    if agreement >= 4 and ensemble_conf >= 0.7:
-        strength = "🔥 STRONG - TAKE IT"
-    elif agreement >= 3 and ensemble_conf >= 0.6:
-        strength = "📊 MODERATE - CONSIDER"
+    # ===== RETRACEMENT =====
+    retrace = is_retracement(df, price)
+    print(f"\n{'='*65}")
+    print(f"🔄 RETRACEMENT CHECK")
+    print(f"{'='*65}")
+    if retrace['is_retracement']:
+        print(f"   ✅ YES - {retrace['type']}")
     else:
-        strength = "⚠️ WEAK - SKIP"
+        print(f"   ❌ NO")
+    print(f"   {retrace['message']}")
+    print(f"   💡 {retrace['action']}")
     
-    print(f"\n⚡ Signal Strength: {strength}")
-    print("="*60)
-    print("\n💡 Scalping Tips:")
-    print("   • Trade during high volume sessions")
-    print("   • Exit quickly - don't hold scalps")
-    print("   • Avoid news events (pure technical only)")
-    print("="*60)
+    # ===== SL / TP =====
+    direction = "BUY" if signal == "BUY" else "SELL"
+    levels = get_sl_tp(df, direction, price)
+    
+    print(f"\n{'='*65}")
+    print(f"🎯 {levels['direction']} TRADE PLAN")
+    print(f"{'='*65}")
+    print(f"   Entry:      ${levels['entry']:.2f}")
+    print(f"   Stop Loss:  ${levels['sl']:.2f} ({levels['risk_pips']:.2f} pips risk)")
+    print(f"   TP1 (1:1):  ${levels['tp1']:.2f}")
+    print(f"   TP2 (1:1.5): ${levels['tp2']:.2f}")
+    print(f"   TP3 (1:2):  ${levels['tp3']:.2f}")
+    
+    # ===== RISK CALCULATION =====
+    risk = calculate_risk(levels['entry'], levels['sl'], 0.1)
+    print(f"\n   📊 Risk @ 0.1 lot: ${risk['total_loss']:.2f} if SL hit")
+    print(f"   📊 Risk @ 0.5 lot: ${risk['total_loss']*5:.2f} if SL hit")
+    print(f"   📊 Risk @ 1.0 lot: ${risk['total_loss']*10:.2f} if SL hit")
+    
+    # ===== SETUP VALIDITY =====
+    validity = when_valid(df, direction, price)
+    print(f"\n{'='*65}")
+    print(f"✅ {direction} SETUP VALIDITY: {validity['score']}")
+    print(f"{'='*65}")
+    for c in validity['conditions']:
+        print(f"   {c}")
+    print(f"\n   💡 Entry zone: {validity['entry_zone']}")
+    print(f"   💡 Ideal entry: ${validity['ideal_entry']:.2f}")
+    
+    # ===== STACKING =====
+    stack = stacking_advice(df, direction, price)
+    print(f"\n{'='*65}")
+    print(f"📦 STACKING ({direction}): {'✅ YES' if stack['can_stack'] else '❌ NO'}")
+    print(f"{'='*65}")
+    for a in stack['advice']:
+        print(f"   {a}")
+    
+    # ===== KEY LEVELS =====
+    print(f"\n{'='*65}")
+    print(f"📊 KEY LEVELS")
+    print(f"{'='*65}")
+    print(f"   EMA9:  ${row['EMA_9']:.2f}")
+    print(f"   EMA21: ${row['EMA_21']:.2f}")
+    print(f"   EMA50: ${row['EMA_50']:.2f}")
+    print(f"   Swing High: ${row['Swing_High']:.2f}")
+    print(f"   Swing Low:  ${row['Swing_Low']:.2f}")
+    print(f"   ATR: ${row['ATR']:.2f}")
+    
+    # ===== INDICATORS =====
+    print(f"\n{'='*65}")
+    print(f"📉 INDICATORS")
+    print(f"{'='*65}")
+    print(f"   RSI: {row['RSI']:.1f} {'(oversold)' if row['RSI']<30 else '(overbought)' if row['RSI']>70 else ''}")
+    print(f"   MACD: {row['MACD']:.2f} (Signal: {row['MACD_Signal']:.2f})")
+    print(f"   Stoch: {row['Stoch_K']:.1f} / {row['Stoch_D']:.1f}")
+    print(f"   CCI: {row['CCI']:.1f}")
+    print(f"   BB Position: {row['BB_Position']:.2f}")
+    
+    # ===== SUMMARY =====
+    print(f"\n{'='*65}")
+    if confidence >= 70 and validity['valid']:
+        print(f"🔥 STRONG {signal} SETUP - High probability trade!")
+    elif confidence >= 60:
+        print(f"📊 MODERATE {signal} - Consider with proper risk management")
+    else:
+        print(f"⚠️ WEAK SETUP - Wait for better confirmation")
+    print(f"{'='*65}\n")
 
 if __name__ == "__main__":
     main()
