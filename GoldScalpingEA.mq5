@@ -114,9 +114,9 @@ int OnInit()
       return INIT_FAILED;
    }
    
-   Print("="*50);
+   Print("==================================================");
    Print("⚡ GOLD SCALPING EA - Pure Technical Analysis");
-   Print("="*50);
+   Print("==================================================");
    Print("   Symbol: ", Symbol());
    Print("   Timeframe: ", EnumToString(Period()));
    Print("   Lot Size: ", LotSize);
@@ -512,7 +512,7 @@ void OnTick()
    last_bar = current_bar;
    
    // New bar - check for trade
-   Print("="*40);
+   Print("========================================");
    Print("⚡ New bar: ", TimeToString(current_bar));
    
    // Check time filter
