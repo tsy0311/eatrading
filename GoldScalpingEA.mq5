@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //|                                              GoldScalpingEA.mq5  |
-//|                    v4.0 - Improved Risk/Reward After Backtesting |
-//|                         Fixed: Avg Loss was 5x Avg Win           |
+//|                    v4.1 - Balanced Settings After Over-Tightening|
+//|                    Fixed: SL too tight caused 67% win rate drop  |
 //+------------------------------------------------------------------+
-#property copyright "Gold Scalping System v4.0"
-#property version   "4.00"
-#property description "Optimized after backtest: Better R:R, Tighter SL"
+#property copyright "Gold Scalping System v4.1"
+#property version   "4.10"
+#property description "Balanced: Quality signals, reasonable SL, no stacking"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -20,34 +20,34 @@ input double   RiskPercent = 0;            // Risk % (0 = fixed lot)
 input int      MaxPositions = 3;           // Max positions (reduced from 5)
 input int      MagicNumber = 12345;        // Magic Number
 
-input group "=== RISK MANAGEMENT (IMPROVED) ==="
-input double   ATR_SL_Multiplier = 1.0;    // SL = 1.0x ATR (was 1.5 - tighter now)
-input double   ATR_TP_Multiplier = 1.5;    // TP = 1.5x ATR (1:1.5 R:R)
-input int      MaxLossPips = 25;           // Maximum loss per trade in pips
-input int      MinRiskReward = 1;          // Minimum Risk:Reward ratio (1 = 1:1)
+input group "=== RISK MANAGEMENT (BALANCED) ==="
+input double   ATR_SL_Multiplier = 1.2;    // SL = 1.2x ATR (balanced)
+input double   ATR_TP_Multiplier = 2.0;    // TP = 2.0x ATR (1:1.67 R:R)
+input int      MaxLossPips = 35;           // Maximum loss per trade in pips
+input int      MinRiskReward = 1;          // Minimum Risk:Reward ratio
 
-input group "=== EARLY EXIT (AGGRESSIVE) ==="
+input group "=== EARLY EXIT (BALANCED) ==="
 input bool     EnableEarlyExit = true;     // Enable early exit
-input int      CutLossPips = -8;           // Cut loss at -8 pips (was -10)
-input int      BreakevenPips = 8;          // Move to BE at +8 pips (was 10)
+input int      CutLossPips = -15;          // Cut loss at -15 pips (give room)
+input int      BreakevenPips = 12;         // Move to BE at +12 pips
 input bool     ExitOnWeakSignal = true;    // Exit if signal weakens
 
-input group "=== TRAILING STOP (AGGRESSIVE) ==="
+input group "=== TRAILING STOP ==="
 input bool     EnableTrailing = true;      // Enable trailing
-input int      TrailingStart = 10;         // Start at +10 pips (was 15)
-input int      TrailingStep = 3;           // Trail by 3 pips (was 5)
+input int      TrailingStart = 15;         // Start at +15 pips
+input int      TrailingStep = 5;           // Trail by 5 pips
 input bool     UseATRTrailing = true;      // Use ATR-based trailing
 
-input group "=== STACKING (CONSERVATIVE) ==="
-input bool     EnableStacking = true;      // Enable stacking
-input int      StackAfterPips = 20;        // Stack after +20 pips (was 15)
-input double   StackMultiplier = 0.3;      // Stack = 0.3x base (was 0.5)
-input int      MaxStackLevel = 2;          // Max 2 stacks (was 3)
+input group "=== STACKING ==="
+input bool     EnableStacking = false;     // DISABLED - focus on quality
+input int      StackAfterPips = 25;        // Stack after +25 pips
+input double   StackMultiplier = 0.3;      // Stack = 0.3x base
+input int      MaxStackLevel = 2;          // Max 2 stacks
 
-input group "=== SIGNAL FILTER (STRICTER) ==="
-input int      MinConfidence = 62;         // Min 62% confidence (was 55)
-input int      StackConfidence = 70;       // Stack needs 70% (was 65)
-input int      ReversalConfidence = 75;    // Reversal needs 75% (was 70)
+input group "=== SIGNAL FILTER (QUALITY) ==="
+input int      MinConfidence = 65;         // Min 65% confidence (stricter)
+input int      StackConfidence = 75;       // Stack needs 75%
+input int      ReversalConfidence = 75;    // Reversal needs 75%
 input bool     RequireTrendAlignment = true; // Require trend + signal alignment
 
 input group "=== TREND REVERSAL ==="
@@ -105,13 +105,13 @@ int OnInit()
    }
    
    Print("==================================================");
-   Print("⚡ GOLD SCALPING EA v4.0 - Optimized R:R");
+   Print("⚡ GOLD SCALPING EA v4.1 - Balanced Quality");
    Print("==================================================");
    Print("   SL: ", DoubleToString(ATR_SL_Multiplier, 1), "x ATR (max ", IntegerToString(MaxLossPips), " pips)");
-   Print("   TP: ", DoubleToString(ATR_TP_Multiplier, 1), "x ATR");
-   Print("   Cut Loss: ", IntegerToString(CutLossPips), " pips");
-   Print("   Breakeven: +", IntegerToString(BreakevenPips), " pips");
-   Print("   Min Confidence: ", IntegerToString(MinConfidence), "%");
+   Print("   TP: ", DoubleToString(ATR_TP_Multiplier, 1), "x ATR (R:R = 1:", DoubleToString(ATR_TP_Multiplier/ATR_SL_Multiplier, 1), ")");
+   Print("   Cut Loss: ", IntegerToString(CutLossPips), " pips | BE: +", IntegerToString(BreakevenPips), " pips");
+   Print("   Min Confidence: ", IntegerToString(MinConfidence), "% | Trend Aligned: ", RequireTrendAlignment ? "YES" : "NO");
+   Print("   Stacking: ", EnableStacking ? "ON" : "OFF", " | Momentum Filter: ON");
    Print("==================================================");
    
    return INIT_SUCCEEDED;
@@ -420,6 +420,25 @@ void ManagePositions(string currentSignal, int signalConf)
 }
 
 //+------------------------------------------------------------------+
+//| Check momentum filter - avoid ranging/weak markets                |
+//+------------------------------------------------------------------+
+bool PassesMomentumFilter()
+{
+   double atr = GetInd(h_atr);
+   double atr_prev = GetInd(h_atr, 0, 5);  // ATR 5 bars ago
+   
+   // Avoid very low volatility (ranging market)
+   double point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
+   if(atr < 20 * point) return false;  // Min 20 pips ATR
+   
+   // Check RSI is not in middle zone (indecisive)
+   double rsi = GetInd(h_rsi);
+   if(rsi > 40 && rsi < 60) return false;  // Avoid 40-60 zone
+   
+   return true;
+}
+
+//+------------------------------------------------------------------+
 //| Check if can open new trade                                       |
 //+------------------------------------------------------------------+
 bool CanOpenTrade(string direction, int confidence, bool trendAligned)
@@ -437,6 +456,9 @@ bool CanOpenTrade(string direction, int confidence, bool trendAligned)
    // Check if already have position in this direction
    ENUM_POSITION_TYPE type = (direction == "BUY") ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
    if(CountPositions(type) > 0) return false;
+   
+   // Momentum filter - avoid weak/ranging markets
+   if(!PassesMomentumFilter()) return false;
    
    // Time filters
    if(UseTimeFilter)
