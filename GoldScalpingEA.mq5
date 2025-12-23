@@ -1,380 +1,284 @@
 //+------------------------------------------------------------------+
 //|                                              GoldScalpingEA.mq5  |
-//|                         Pure Technical Scalping - NO Fundamentals |
-//|                                    Same Logic as Python ML Model  |
+//|                    Advanced Scalping with Dynamic Position Mgmt  |
+//|           Stacking, Early Exit, Trend Reversal, Flexible Trading |
 //+------------------------------------------------------------------+
-#property copyright "Gold Scalping System"
-#property version   "2.00"
-#property description "Pure Technical Scalping EA for XAUUSD"
+#property copyright "Gold Scalping System v3.0"
+#property version   "3.00"
+#property description "Smart Scalping: Stack, Cut Loss, Trend Reversal"
 #property strict
 
 #include <Trade\Trade.mqh>
+#include <Trade\PositionInfo.mqh>
 
 //+------------------------------------------------------------------+
 //| INPUT PARAMETERS                                                  |
 //+------------------------------------------------------------------+
 input group "=== TRADE SETTINGS ==="
-input double   LotSize = 0.1;              // Lot Size (used when RiskPercent=0)
-input double   RiskPercent = 0;            // Risk % per trade (0 = use fixed LotSize)
-input int      MaxTrades = 3;              // Max concurrent trades
+input double   BaseLotSize = 0.1;          // Base Lot Size
+input double   RiskPercent = 0;            // Risk % (0 = use fixed lot)
+input int      MaxPositions = 5;           // Max positions (for stacking)
 input int      MagicNumber = 12345;        // Magic Number
 
-input group "=== SCALPING PARAMETERS ==="
-input int      ScalpTP_Pips = 20;          // Take Profit (pips)
-input int      ScalpSL_Pips = 15;          // Stop Loss (pips)
-input double   ATR_SL_Multiplier = 1.5;    // ATR multiplier for SL (0 = use fixed)
-input double   ATR_TP_Multiplier = 2.0;    // ATR multiplier for TP (0 = use fixed)
+input group "=== STACKING SETTINGS ==="
+input bool     EnableStacking = true;      // Enable position stacking
+input int      StackAfterPips = 15;        // Stack after X pips profit
+input double   StackMultiplier = 0.5;      // Stack lot multiplier (0.5 = half size)
+input int      MaxStackLevel = 3;          // Max stack levels per direction
 
-input group "=== SIGNAL SETTINGS ==="
-input int      MinConfidence = 60;         // Minimum signal confidence (%)
-input int      MinIndicators = 4;          // Min indicators agreeing (out of 7)
-input bool     TradeOnlyStrong = true;     // Only trade strong signals
+input group "=== EARLY EXIT / CUT LOSS ==="
+input bool     EnableEarlyExit = true;     // Enable early exit on reversal
+input int      EarlyExitPips = -10;        // Cut loss at X pips (negative)
+input bool     ExitOnReversalSignal = true;// Exit when signal reverses
+input int      MinProfitToProtect = 10;    // Move SL to BE after X pips profit
+
+input group "=== TREND REVERSAL ==="
+input bool     EnableReversal = true;      // Enable trend reversal trading
+input int      ReversalConfirmBars = 2;    // Bars to confirm reversal
+input bool     CloseOnReversal = true;     // Close opposite positions on reversal
+
+input group "=== TRAILING STOP ==="
+input bool     EnableTrailing = true;      // Enable trailing stop
+input int      TrailingStart = 15;         // Start trailing after X pips
+input int      TrailingStep = 5;           // Trailing step in pips
 
 input group "=== INDICATOR PERIODS ==="
-input int      EMA_Fast = 9;               // Fast EMA period
-input int      EMA_Medium = 21;            // Medium EMA period  
-input int      EMA_Slow = 50;              // Slow EMA period
+input int      EMA_Fast = 9;               // Fast EMA
+input int      EMA_Medium = 21;            // Medium EMA
+input int      EMA_Slow = 50;              // Slow EMA
 input int      RSI_Period = 14;            // RSI period
-input int      RSI_Fast_Period = 5;        // Fast RSI period
-input int      Stoch_K = 14;               // Stochastic K period
-input int      Stoch_D = 3;                // Stochastic D period
 input int      ATR_Period = 14;            // ATR period
 input int      MACD_Fast = 12;             // MACD fast
 input int      MACD_Slow = 26;             // MACD slow
 input int      MACD_Signal = 9;            // MACD signal
-input int      BB_Period = 20;             // Bollinger Bands period
-input double   BB_Deviation = 2.0;         // Bollinger Bands deviation
-input int      CCI_Period = 20;            // CCI period
+
+input group "=== SIGNAL SETTINGS ==="
+input int      MinConfidence = 55;         // Min confidence for new trade
+input int      StackConfidence = 65;       // Min confidence for stacking
+input int      ReversalConfidence = 70;    // Min confidence for reversal
 
 input group "=== TIME FILTER ==="
-input bool     UseTimeFilter = false;      // Use trading hours filter
-input int      StartHour = 8;              // Start hour (server time)
-input int      EndHour = 20;               // End hour (server time)
+input bool     UseTimeFilter = false;      // Use time filter
+input int      StartHour = 8;              // Start hour
+input int      EndHour = 20;               // End hour
 
 //+------------------------------------------------------------------+
 //| GLOBAL VARIABLES                                                  |
 //+------------------------------------------------------------------+
 CTrade trade;
+CPositionInfo posInfo;
 
-// Indicator handles
 int h_ema_fast, h_ema_medium, h_ema_slow;
-int h_rsi, h_rsi_fast;
-int h_stoch;
-int h_macd;
-int h_atr;
-int h_bb;
-int h_cci;
+int h_rsi, h_macd, h_atr, h_bb, h_stoch;
 
-// Signal structure
-struct SignalData
-{
-   string direction;      // "BUY", "SELL", "HOLD"
-   int    confidence;     // 0-100
-   int    indicators;     // How many agree
-   double sl;
-   double tp;
-   string reasons[];
+string currentTrend = "NONE";
+string previousTrend = "NONE";
+int trendChangeBars = 0;
+
+struct PositionData {
+   ulong ticket;
+   double openPrice;
+   double profit;
+   double lots;
+   ENUM_POSITION_TYPE type;
+   int stackLevel;
 };
 
 //+------------------------------------------------------------------+
-//| Expert initialization function                                    |
+//| Expert initialization                                             |
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   // Check symbol
-   if(Symbol() != "XAUUSD" && Symbol() != "GOLD" && StringFind(Symbol(), "XAU") < 0)
-   {
-      Print("⚠️ Warning: This EA is optimized for Gold (XAUUSD)");
-   }
-   
-   // Initialize trade object
    trade.SetExpertMagicNumber(MagicNumber);
    trade.SetDeviationInPoints(10);
    trade.SetTypeFilling(ORDER_FILLING_IOC);
    
-   // Create indicator handles
    h_ema_fast = iMA(Symbol(), PERIOD_CURRENT, EMA_Fast, 0, MODE_EMA, PRICE_CLOSE);
    h_ema_medium = iMA(Symbol(), PERIOD_CURRENT, EMA_Medium, 0, MODE_EMA, PRICE_CLOSE);
    h_ema_slow = iMA(Symbol(), PERIOD_CURRENT, EMA_Slow, 0, MODE_EMA, PRICE_CLOSE);
    h_rsi = iRSI(Symbol(), PERIOD_CURRENT, RSI_Period, PRICE_CLOSE);
-   h_rsi_fast = iRSI(Symbol(), PERIOD_CURRENT, RSI_Fast_Period, PRICE_CLOSE);
-   h_stoch = iStochastic(Symbol(), PERIOD_CURRENT, Stoch_K, Stoch_D, 3, MODE_SMA, STO_LOWHIGH);
    h_macd = iMACD(Symbol(), PERIOD_CURRENT, MACD_Fast, MACD_Slow, MACD_Signal, PRICE_CLOSE);
    h_atr = iATR(Symbol(), PERIOD_CURRENT, ATR_Period);
-   h_bb = iBands(Symbol(), PERIOD_CURRENT, BB_Period, 0, BB_Deviation, PRICE_CLOSE);
-   h_cci = iCCI(Symbol(), PERIOD_CURRENT, CCI_Period, PRICE_TYPICAL);
+   h_stoch = iStochastic(Symbol(), PERIOD_CURRENT, 14, 3, 3, MODE_SMA, STO_LOWHIGH);
+   h_bb = iBands(Symbol(), PERIOD_CURRENT, 20, 0, 2.0, PRICE_CLOSE);
    
-   // Check handles
-   if(h_ema_fast == INVALID_HANDLE || h_ema_medium == INVALID_HANDLE || 
-      h_ema_slow == INVALID_HANDLE || h_rsi == INVALID_HANDLE ||
-      h_stoch == INVALID_HANDLE || h_macd == INVALID_HANDLE ||
-      h_atr == INVALID_HANDLE || h_bb == INVALID_HANDLE)
+   if(h_ema_fast == INVALID_HANDLE || h_rsi == INVALID_HANDLE)
    {
-      Print("❌ Error creating indicator handles");
+      Print("Error creating indicators");
       return INIT_FAILED;
    }
    
    Print("==================================================");
-   Print("⚡ GOLD SCALPING EA - Pure Technical Analysis");
+   Print("⚡ GOLD SCALPING EA v3.0 - Smart Trading");
    Print("==================================================");
-   Print("   Symbol: ", Symbol());
-   Print("   Timeframe: ", EnumToString(Period()));
-   Print("   Lot Size: ", LotSize);
-   Print("   Min Confidence: ", IntegerToString(MinConfidence), "%");
+   Print("   Stacking: ", EnableStacking ? "ON" : "OFF");
+   Print("   Early Exit: ", EnableEarlyExit ? "ON" : "OFF");
+   Print("   Trend Reversal: ", EnableReversal ? "ON" : "OFF");
+   Print("   Trailing Stop: ", EnableTrailing ? "ON" : "OFF");
    Print("==================================================");
    
    return INIT_SUCCEEDED;
 }
 
 //+------------------------------------------------------------------+
-//| Expert deinitialization function                                  |
+//| Expert deinitialization                                           |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-   // Release indicator handles
    IndicatorRelease(h_ema_fast);
    IndicatorRelease(h_ema_medium);
    IndicatorRelease(h_ema_slow);
    IndicatorRelease(h_rsi);
-   IndicatorRelease(h_rsi_fast);
-   IndicatorRelease(h_stoch);
    IndicatorRelease(h_macd);
    IndicatorRelease(h_atr);
+   IndicatorRelease(h_stoch);
    IndicatorRelease(h_bb);
-   IndicatorRelease(h_cci);
-   
-   Print("⚡ Gold Scalping EA stopped");
+   Comment("");
 }
 
 //+------------------------------------------------------------------+
-//| Get indicator values                                              |
+//| Get indicator value                                               |
 //+------------------------------------------------------------------+
-double GetIndicator(int handle, int buffer = 0, int shift = 0)
+double GetInd(int handle, int buffer = 0, int shift = 0)
 {
-   double value[];
-   ArraySetAsSeries(value, true);
-   if(CopyBuffer(handle, buffer, shift, 3, value) > 0)
-      return value[shift];
+   double val[];
+   ArraySetAsSeries(val, true);
+   if(CopyBuffer(handle, buffer, shift, 3, val) > 0)
+      return val[shift];
    return 0;
 }
 
 //+------------------------------------------------------------------+
-//| Get trend direction                                               |
+//| Get current trend                                                 |
 //+------------------------------------------------------------------+
 string GetTrend()
 {
-   double ema_fast = GetIndicator(h_ema_fast);
-   double ema_medium = GetIndicator(h_ema_medium);
-   double ema_slow = GetIndicator(h_ema_slow);
+   double ema_f = GetInd(h_ema_fast);
+   double ema_m = GetInd(h_ema_medium);
+   double ema_s = GetInd(h_ema_slow);
    
-   if(ema_fast > ema_medium && ema_medium > ema_slow)
+   if(ema_f > ema_m && ema_m > ema_s)
       return "STRONG_UP";
-   else if(ema_fast > ema_medium)
+   else if(ema_f > ema_m)
       return "UP";
-   else if(ema_fast < ema_medium && ema_medium < ema_slow)
+   else if(ema_f < ema_m && ema_m < ema_s)
       return "STRONG_DOWN";
-   else if(ema_fast < ema_medium)
+   else if(ema_f < ema_m)
       return "DOWN";
-   else
-      return "RANGE";
+   return "RANGE";
 }
 
 //+------------------------------------------------------------------+
-//| Check if retracement (pullback in trend)                          |
+//| Check for trend reversal                                          |
 //+------------------------------------------------------------------+
-bool IsRetracement(string trend, double price)
+bool IsTrendReversal(string &newTrend)
 {
-   double ema_fast = GetIndicator(h_ema_fast);
-   double ema_medium = GetIndicator(h_ema_medium);
-   double ema_slow = GetIndicator(h_ema_slow);
-   double rsi = GetIndicator(h_rsi);
+   string trend = GetTrend();
+   newTrend = trend;
    
-   // Uptrend pullback
-   if(StringFind(trend, "UP") >= 0)
+   // Check if trend changed direction
+   bool wasUp = (StringFind(previousTrend, "UP") >= 0);
+   bool wasDown = (StringFind(previousTrend, "DOWN") >= 0);
+   bool isUp = (StringFind(trend, "UP") >= 0);
+   bool isDown = (StringFind(trend, "DOWN") >= 0);
+   
+   if((wasUp && isDown) || (wasDown && isUp))
    {
-      if(price < ema_fast && price > ema_medium)
+      trendChangeBars++;
+      if(trendChangeBars >= ReversalConfirmBars)
+      {
+         previousTrend = trend;
+         trendChangeBars = 0;
          return true;
-      if(price < ema_medium && price > ema_slow)
-         return true;
-      if(rsi < 40)
-         return true;
+      }
    }
-   
-   // Downtrend bounce
-   if(StringFind(trend, "DOWN") >= 0)
+   else
    {
-      if(price > ema_fast && price < ema_medium)
-         return true;
-      if(price > ema_medium && price < ema_slow)
-         return true;
-      if(rsi > 60)
-         return true;
+      trendChangeBars = 0;
+      previousTrend = trend;
    }
    
    return false;
 }
 
 //+------------------------------------------------------------------+
-//| Generate trading signal (same logic as Python model)              |
+//| Get signal with confidence                                        |
 //+------------------------------------------------------------------+
-SignalData GetSignal()
+void GetSignal(string &direction, int &confidence)
 {
-   SignalData signal;
-   signal.direction = "HOLD";
-   signal.confidence = 50;
-   signal.indicators = 0;
-   
    double price = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+   double ema_f = GetInd(h_ema_fast);
+   double ema_m = GetInd(h_ema_medium);
+   double ema_s = GetInd(h_ema_slow);
+   double rsi = GetInd(h_rsi);
+   double macd = GetInd(h_macd, 0);
+   double macd_sig = GetInd(h_macd, 1);
+   double stoch = GetInd(h_stoch, 0);
+   double bb_upper = GetInd(h_bb, 1);
+   double bb_lower = GetInd(h_bb, 2);
    
-   // Get indicator values
-   double ema_fast = GetIndicator(h_ema_fast);
-   double ema_medium = GetIndicator(h_ema_medium);
-   double ema_slow = GetIndicator(h_ema_slow);
-   double rsi = GetIndicator(h_rsi);
-   double rsi_fast = GetIndicator(h_rsi_fast);
-   double stoch_k = GetIndicator(h_stoch, 0);
-   double stoch_d = GetIndicator(h_stoch, 1);
-   double macd_main = GetIndicator(h_macd, 0);
-   double macd_signal = GetIndicator(h_macd, 1);
-   double macd_hist = GetIndicator(h_macd, 2);
-   double atr = GetIndicator(h_atr);
-   double bb_upper = GetIndicator(h_bb, 1);
-   double bb_lower = GetIndicator(h_bb, 2);
-   double bb_mid = GetIndicator(h_bb, 0);
-   double cci = GetIndicator(h_cci);
+   int buy = 0, sell = 0;
    
-   int buy_score = 0;
-   int sell_score = 0;
+   // EMA trend
+   if(ema_f > ema_m) buy += 2; else sell += 2;
+   if(price > ema_s) buy += 2; else sell += 2;
    
-   // ==========================================================
-   // SIGNAL LOGIC (Same as Python ML Model)
-   // ==========================================================
+   // RSI
+   if(rsi < 30) buy += 3;
+   else if(rsi > 70) sell += 3;
+   else if(rsi > 50) buy += 1;
+   else sell += 1;
    
-   // 1. EMA Trend (weight: 2)
-   if(ema_fast > ema_medium)
-      buy_score += 2;
-   else
-      sell_score += 2;
-      
-   // 2. Price vs EMA50 (weight: 2)
-   if(price > ema_slow)
-      buy_score += 2;
-   else
-      sell_score += 2;
-      
-   // 3. RSI (weight: 2-3)
-   if(rsi < 30)
-      buy_score += 3;  // Oversold = strong buy
-   else if(rsi > 70)
-      sell_score += 3; // Overbought = strong sell
-   else if(rsi > 50)
-      buy_score += 1;
-   else
-      sell_score += 1;
-      
-   // 4. MACD (weight: 2)
-   if(macd_main > macd_signal)
-      buy_score += 2;
-   else
-      sell_score += 2;
-      
-   // 5. Stochastic (weight: 1-2)
-   if(stoch_k < 20)
-      buy_score += 2;  // Oversold
-   else if(stoch_k > 80)
-      sell_score += 2; // Overbought
-   else if(stoch_k > stoch_d)
-      buy_score += 1;
-   else
-      sell_score += 1;
-      
-   // 6. Bollinger Bands (weight: 1-2)
-   if(price < bb_lower)
-      buy_score += 2;  // At lower band
-   else if(price > bb_upper)
-      sell_score += 2; // At upper band
-      
-   // 7. CCI (weight: 1)
-   if(cci < -100)
-      buy_score += 1;
-   else if(cci > 100)
-      sell_score += 1;
-      
-   // 8. Fast EMA cross (scalping)
-   double ema_3 = iMA(Symbol(), PERIOD_CURRENT, 3, 0, MODE_EMA, PRICE_CLOSE);
-   double ema_8 = iMA(Symbol(), PERIOD_CURRENT, 8, 0, MODE_EMA, PRICE_CLOSE);
-   double ema3_val[], ema8_val[];
-   ArraySetAsSeries(ema3_val, true);
-   ArraySetAsSeries(ema8_val, true);
-   CopyBuffer(iMA(Symbol(), PERIOD_CURRENT, 3, 0, MODE_EMA, PRICE_CLOSE), 0, 0, 1, ema3_val);
-   CopyBuffer(iMA(Symbol(), PERIOD_CURRENT, 8, 0, MODE_EMA, PRICE_CLOSE), 0, 0, 1, ema8_val);
+   // MACD
+   if(macd > macd_sig) buy += 2; else sell += 2;
    
-   if(ema3_val[0] > ema8_val[0])
-      buy_score += 1;
-   else
-      sell_score += 1;
+   // Stochastic
+   if(stoch < 20) buy += 2;
+   else if(stoch > 80) sell += 2;
    
-   // ==========================================================
-   // CALCULATE SIGNAL
-   // ==========================================================
-   int total = buy_score + sell_score;
+   // Bollinger
+   if(price < bb_lower) buy += 2;
+   else if(price > bb_upper) sell += 2;
    
-   if(buy_score > sell_score)
+   int total = buy + sell;
+   if(buy > sell)
    {
-      signal.direction = "BUY";
-      signal.confidence = (int)((double)buy_score / total * 100);
-      signal.indicators = buy_score;
+      direction = "BUY";
+      confidence = (int)((double)buy / total * 100);
    }
-   else if(sell_score > buy_score)
+   else if(sell > buy)
    {
-      signal.direction = "SELL";
-      signal.confidence = (int)((double)sell_score / total * 100);
-      signal.indicators = sell_score;
+      direction = "SELL";
+      confidence = (int)((double)sell / total * 100);
    }
-   
-   // ==========================================================
-   // CALCULATE SL/TP
-   // ==========================================================
-   double sl_distance, tp_distance;
-   
-   if(ATR_SL_Multiplier > 0)
-      sl_distance = atr * ATR_SL_Multiplier;
    else
-      sl_distance = ScalpSL_Pips * SymbolInfoDouble(Symbol(), SYMBOL_POINT) * 10;
-      
-   if(ATR_TP_Multiplier > 0)
-      tp_distance = atr * ATR_TP_Multiplier;
-   else
-      tp_distance = ScalpTP_Pips * SymbolInfoDouble(Symbol(), SYMBOL_POINT) * 10;
-   
-   if(signal.direction == "BUY")
    {
-      signal.sl = price - sl_distance;
-      signal.tp = price + tp_distance;
+      direction = "HOLD";
+      confidence = 50;
    }
-   else if(signal.direction == "SELL")
-   {
-      signal.sl = price + sl_distance;
-      signal.tp = price - tp_distance;
-   }
-   
-   return signal;
 }
 
 //+------------------------------------------------------------------+
-//| Count open positions                                              |
+//| Count positions by type                                           |
 //+------------------------------------------------------------------+
-int CountPositions()
+int CountPositions(ENUM_POSITION_TYPE type, double &totalProfit, double &totalLots)
 {
    int count = 0;
+   totalProfit = 0;
+   totalLots = 0;
+   
    for(int i = PositionsTotal() - 1; i >= 0; i--)
    {
-      if(PositionSelectByTicket(PositionGetTicket(i)))
+      if(posInfo.SelectByIndex(i))
       {
-         if(PositionGetInteger(POSITION_MAGIC) == MagicNumber &&
-            PositionGetString(POSITION_SYMBOL) == Symbol())
+         if(posInfo.Magic() == MagicNumber && posInfo.Symbol() == Symbol())
          {
-            count++;
+            if(posInfo.PositionType() == type)
+            {
+               count++;
+               totalProfit += posInfo.Profit();
+               totalLots += posInfo.Volume();
+            }
          }
       }
    }
@@ -382,196 +286,389 @@ int CountPositions()
 }
 
 //+------------------------------------------------------------------+
-//| Check if can trade (time filter)                                  |
+//| Get total position info                                           |
 //+------------------------------------------------------------------+
-bool CanTrade()
+int GetAllPositions(double &buyProfit, double &sellProfit, int &buyCount, int &sellCount)
 {
-   if(!UseTimeFilter)
-      return true;
-      
-   MqlDateTime dt;
-   TimeToStruct(TimeCurrent(), dt);
-   
-   if(dt.hour >= StartHour && dt.hour < EndHour)
-      return true;
-      
-   return false;
+   double buyLots, sellLots;
+   buyCount = CountPositions(POSITION_TYPE_BUY, buyProfit, buyLots);
+   sellCount = CountPositions(POSITION_TYPE_SELL, sellProfit, sellLots);
+   return buyCount + sellCount;
 }
 
 //+------------------------------------------------------------------+
-//| Calculate lot size based on risk                                  |
+//| Close all positions of a type                                     |
 //+------------------------------------------------------------------+
-double CalculateLotSize(double sl_distance)
+void ClosePositions(ENUM_POSITION_TYPE type)
 {
-   if(RiskPercent <= 0)
-      return LotSize;
-      
-   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-   double risk_amount = balance * RiskPercent / 100;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      if(posInfo.SelectByIndex(i))
+      {
+         if(posInfo.Magic() == MagicNumber && posInfo.Symbol() == Symbol())
+         {
+            if(posInfo.PositionType() == type)
+            {
+               trade.PositionClose(posInfo.Ticket());
+               Print("Closed ", (type == POSITION_TYPE_BUY ? "BUY" : "SELL"), 
+                     " @ ", DoubleToString(posInfo.PriceOpen(), 2),
+                     " P/L: ", DoubleToString(posInfo.Profit(), 2));
+            }
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Close all positions                                               |
+//+------------------------------------------------------------------+
+void CloseAllPositions()
+{
+   ClosePositions(POSITION_TYPE_BUY);
+   ClosePositions(POSITION_TYPE_SELL);
+}
+
+//+------------------------------------------------------------------+
+//| Check and apply trailing stop                                     |
+//+------------------------------------------------------------------+
+void ManageTrailingStop()
+{
+   if(!EnableTrailing) return;
    
-   double tick_value = SymbolInfoDouble(Symbol(), SYMBOL_TRADE_TICK_VALUE);
-   double tick_size = SymbolInfoDouble(Symbol(), SYMBOL_TRADE_TICK_SIZE);
+   double point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
    
-   double lot = risk_amount / (sl_distance / tick_size * tick_value);
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      if(posInfo.SelectByIndex(i))
+      {
+         if(posInfo.Magic() != MagicNumber || posInfo.Symbol() != Symbol())
+            continue;
+            
+         double openPrice = posInfo.PriceOpen();
+         double currentSL = posInfo.StopLoss();
+         double currentTP = posInfo.TakeProfit();
+         
+         if(posInfo.PositionType() == POSITION_TYPE_BUY)
+         {
+            double bid = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+            double profitPips = (bid - openPrice) / point / 10;
+            
+            if(profitPips >= TrailingStart)
+            {
+               double newSL = bid - TrailingStep * point * 10;
+               if(newSL > currentSL + point)
+               {
+                  trade.PositionModify(posInfo.Ticket(), newSL, currentTP);
+               }
+            }
+            // Move to breakeven
+            else if(profitPips >= MinProfitToProtect && currentSL < openPrice)
+            {
+               trade.PositionModify(posInfo.Ticket(), openPrice + point * 10, currentTP);
+               Print("BUY moved to breakeven");
+            }
+         }
+         else // SELL
+         {
+            double ask = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+            double profitPips = (openPrice - ask) / point / 10;
+            
+            if(profitPips >= TrailingStart)
+            {
+               double newSL = ask + TrailingStep * point * 10;
+               if(newSL < currentSL - point || currentSL == 0)
+               {
+                  trade.PositionModify(posInfo.Ticket(), newSL, currentTP);
+               }
+            }
+            // Move to breakeven
+            else if(profitPips >= MinProfitToProtect && (currentSL > openPrice || currentSL == 0))
+            {
+               trade.PositionModify(posInfo.Ticket(), openPrice - point * 10, currentTP);
+               Print("SELL moved to breakeven");
+            }
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Check for early exit signals                                      |
+//+------------------------------------------------------------------+
+void CheckEarlyExit(string currentSignal, int signalConf)
+{
+   if(!EnableEarlyExit) return;
    
-   // Normalize lot
-   double min_lot = SymbolInfoDouble(Symbol(), SYMBOL_VOLUME_MIN);
-   double max_lot = SymbolInfoDouble(Symbol(), SYMBOL_VOLUME_MAX);
-   double step = SymbolInfoDouble(Symbol(), SYMBOL_VOLUME_STEP);
+   double point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
    
-   lot = MathMax(min_lot, MathMin(max_lot, lot));
-   lot = MathFloor(lot / step) * step;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      if(posInfo.SelectByIndex(i))
+      {
+         if(posInfo.Magic() != MagicNumber || posInfo.Symbol() != Symbol())
+            continue;
+            
+         double openPrice = posInfo.PriceOpen();
+         double currentPrice = (posInfo.PositionType() == POSITION_TYPE_BUY) ?
+                               SymbolInfoDouble(Symbol(), SYMBOL_BID) :
+                               SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+         
+         double profitPips;
+         if(posInfo.PositionType() == POSITION_TYPE_BUY)
+            profitPips = (currentPrice - openPrice) / point / 10;
+         else
+            profitPips = (openPrice - currentPrice) / point / 10;
+         
+         // Early cut loss
+         if(profitPips <= EarlyExitPips)
+         {
+            // Check if signal reversed
+            if(ExitOnReversalSignal)
+            {
+               if((posInfo.PositionType() == POSITION_TYPE_BUY && currentSignal == "SELL" && signalConf >= ReversalConfidence) ||
+                  (posInfo.PositionType() == POSITION_TYPE_SELL && currentSignal == "BUY" && signalConf >= ReversalConfidence))
+               {
+                  trade.PositionClose(posInfo.Ticket());
+                  Print("⚠️ EARLY EXIT: Signal reversed! Closed at ", 
+                        DoubleToString(profitPips, 1), " pips");
+               }
+            }
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Check if can stack position                                       |
+//+------------------------------------------------------------------+
+bool CanStack(string direction, int signalConf)
+{
+   if(!EnableStacking) return false;
+   if(signalConf < StackConfidence) return false;
    
-   return lot;
+   double point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
+   ENUM_POSITION_TYPE type = (direction == "BUY") ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
+   
+   int stackCount = 0;
+   double bestProfit = 0;
+   
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      if(posInfo.SelectByIndex(i))
+      {
+         if(posInfo.Magic() == MagicNumber && posInfo.Symbol() == Symbol())
+         {
+            if(posInfo.PositionType() == type)
+            {
+               stackCount++;
+               double openPrice = posInfo.PriceOpen();
+               double currentPrice = (type == POSITION_TYPE_BUY) ?
+                                     SymbolInfoDouble(Symbol(), SYMBOL_BID) :
+                                     SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+               
+               double profitPips;
+               if(type == POSITION_TYPE_BUY)
+                  profitPips = (currentPrice - openPrice) / point / 10;
+               else
+                  profitPips = (openPrice - currentPrice) / point / 10;
+               
+               if(profitPips > bestProfit)
+                  bestProfit = profitPips;
+            }
+         }
+      }
+   }
+   
+   // Can stack if: under max level AND best position is in profit
+   if(stackCount < MaxStackLevel && bestProfit >= StackAfterPips)
+   {
+      Print("✅ Stack condition met: ", IntegerToString(stackCount), " positions, ",
+            DoubleToString(bestProfit, 1), " pips profit");
+      return true;
+   }
+   
+   return false;
 }
 
 //+------------------------------------------------------------------+
 //| Execute trade                                                     |
 //+------------------------------------------------------------------+
-bool ExecuteTrade(SignalData &signal)
+bool ExecuteTrade(string direction, double lots, string comment)
 {
-   double price = (signal.direction == "BUY") ? 
-                  SymbolInfoDouble(Symbol(), SYMBOL_ASK) : 
-                  SymbolInfoDouble(Symbol(), SYMBOL_BID);
-                  
-   double sl_distance = MathAbs(price - signal.sl);
-   double lots = CalculateLotSize(sl_distance);
+   double atr = GetInd(h_atr);
+   double price, sl, tp;
    
-   string comment = StringFormat("Scalp_%s_%d%%", signal.direction, signal.confidence);
-   
-   bool result = false;
-   
-   if(signal.direction == "BUY")
+   if(direction == "BUY")
    {
-      result = trade.Buy(lots, Symbol(), price, signal.sl, signal.tp, comment);
-   }
-   else if(signal.direction == "SELL")
-   {
-      result = trade.Sell(lots, Symbol(), price, signal.sl, signal.tp, comment);
-   }
-   
-   if(result)
-   {
-      Print("✅ ", signal.direction, " executed @ ", DoubleToString(price, 2), 
-            " | SL: ", DoubleToString(signal.sl, 2), " | TP: ", DoubleToString(signal.tp, 2),
-            " | Confidence: ", IntegerToString(signal.confidence), "%");
+      price = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+      sl = price - atr * 1.5;
+      tp = price + atr * 2.5;
+      return trade.Buy(lots, Symbol(), price, sl, tp, comment);
    }
    else
    {
-      Print("❌ Trade failed: ", trade.ResultComment());
+      price = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+      sl = price + atr * 1.5;
+      tp = price - atr * 2.5;
+      return trade.Sell(lots, Symbol(), price, sl, tp, comment);
    }
-   
-   return result;
 }
 
 //+------------------------------------------------------------------+
-//| Display signal on chart                                           |
+//| Display info on chart                                             |
 //+------------------------------------------------------------------+
-void DisplaySignal(SignalData &signal)
+void DisplayInfo(string signal, int confidence, string trend)
 {
-   string trend = GetTrend();
-   double price = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+   double buyProfit, sellProfit;
+   int buyCount, sellCount;
+   GetAllPositions(buyProfit, sellProfit, buyCount, sellCount);
    
-   string emoji = (signal.direction == "BUY") ? "🟢" : 
-                  (signal.direction == "SELL") ? "🔴" : "⚪";
+   string emoji = (signal == "BUY") ? "🟢" : (signal == "SELL") ? "🔴" : "⚪";
    
    Comment(
-      "\n⚡ GOLD SCALPING EA - Pure Technical\n",
+      "\n⚡ GOLD SCALPING EA v3.0\n",
       "══════════════════════════════════\n",
-      "📅 Time: ", TimeToString(TimeCurrent()), "\n",
-      "💰 Price: $", DoubleToString(price, 2), "\n",
-      "\n📈 Trend: ", trend, "\n",
-      "\n", emoji, " Signal: ", signal.direction, "\n",
-      "   Confidence: ", signal.confidence, "%\n",
-      "   Indicators: ", signal.indicators, "/8\n",
-      "\n🎯 Trade Plan:\n",
-      "   Entry: $", DoubleToString(price, 2), "\n",
-      "   SL: $", DoubleToString(signal.sl, 2), "\n",
-      "   TP: $", DoubleToString(signal.tp, 2), "\n",
-      "\n══════════════════════════════════\n",
-      "Open positions: ", CountPositions(), "/", MaxTrades
+      "💰 Price: $", DoubleToString(SymbolInfoDouble(Symbol(), SYMBOL_BID), 2), "\n",
+      "📈 Trend: ", trend, "\n",
+      "\n", emoji, " Signal: ", signal, " (", IntegerToString(confidence), "%)\n",
+      "\n📊 POSITIONS:\n",
+      "   BUY:  ", IntegerToString(buyCount), " | P/L: $", DoubleToString(buyProfit, 2), "\n",
+      "   SELL: ", IntegerToString(sellCount), " | P/L: $", DoubleToString(sellProfit, 2), "\n",
+      "   Total: $", DoubleToString(buyProfit + sellProfit, 2), "\n",
+      "\n⚙️ FEATURES:\n",
+      "   Stacking: ", (EnableStacking ? "ON" : "OFF"), "\n",
+      "   Early Exit: ", (EnableEarlyExit ? "ON" : "OFF"), "\n",
+      "   Trailing: ", (EnableTrailing ? "ON" : "OFF"), "\n",
+      "══════════════════════════════════"
    );
 }
 
 //+------------------------------------------------------------------+
-//| Expert tick function                                              |
+//| Main tick function                                                |
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   // Check if new bar
-   static datetime last_bar = 0;
-   datetime current_bar = iTime(Symbol(), PERIOD_CURRENT, 0);
+   // Always manage positions
+   ManageTrailingStop();
    
-   if(current_bar == last_bar)
-   {
-      // Update display every tick
-      SignalData signal = GetSignal();
-      DisplaySignal(signal);
-      return;
-   }
-   last_bar = current_bar;
+   // Get current signal
+   string signal;
+   int confidence;
+   GetSignal(signal, confidence);
    
-   // New bar - check for trade
-   Print("========================================");
-   Print("⚡ New bar: ", TimeToString(current_bar));
-   
-   // Check time filter
-   if(!CanTrade())
-   {
-      Print("⏰ Outside trading hours");
-      return;
-   }
-   
-   // Check max trades
-   if(CountPositions() >= MaxTrades)
-   {
-      Print("📊 Max trades reached: ", CountPositions());
-      return;
-   }
-   
-   // Get signal
-   SignalData signal = GetSignal();
-   DisplaySignal(signal);
-   
-   Print("📊 Signal: ", signal.direction, 
-         " | Confidence: ", IntegerToString(signal.confidence), "%",
-         " | Indicators: ", IntegerToString(signal.indicators));
-   
-   // Check if signal is strong enough
-   if(signal.direction == "HOLD")
-   {
-      Print("⏸️ No clear signal");
-      return;
-   }
-   
-   if(signal.confidence < MinConfidence)
-   {
-      Print("⚠️ Confidence too low: ", IntegerToString(signal.confidence), "% < ", IntegerToString(MinConfidence), "%");
-      return;
-   }
-   
-   if(TradeOnlyStrong && signal.indicators < MinIndicators)
-   {
-      Print("⚠️ Not enough indicators agreeing: ", IntegerToString(signal.indicators), " < ", IntegerToString(MinIndicators));
-      return;
-   }
-   
-   // Check for retracement (better entry)
    string trend = GetTrend();
-   double price = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+   DisplayInfo(signal, confidence, trend);
    
-   if((signal.direction == "BUY" && StringFind(trend, "UP") >= 0) ||
-      (signal.direction == "SELL" && StringFind(trend, "DOWN") >= 0))
+   // Check early exit
+   CheckEarlyExit(signal, confidence);
+   
+   // Check for new bar
+   static datetime lastBar = 0;
+   datetime currentBar = iTime(Symbol(), PERIOD_CURRENT, 0);
+   if(currentBar == lastBar) return;
+   lastBar = currentBar;
+   
+   // Time filter
+   if(UseTimeFilter)
    {
-      if(IsRetracement(trend, price))
+      MqlDateTime dt;
+      TimeToStruct(TimeCurrent(), dt);
+      if(dt.hour < StartHour || dt.hour >= EndHour) return;
+   }
+   
+   Print("========================================");
+   Print("New bar: ", TimeToString(currentBar));
+   Print("Signal: ", signal, " (", IntegerToString(confidence), "%) | Trend: ", trend);
+   
+   // Check trend reversal
+   string newTrend;
+   if(EnableReversal && IsTrendReversal(newTrend))
+   {
+      Print("🔄 TREND REVERSAL DETECTED: ", newTrend);
+      
+      if(CloseOnReversal)
       {
-         Print("✅ Retracement detected - Good entry!");
+         if(StringFind(newTrend, "UP") >= 0)
+         {
+            Print("Closing all SELL positions...");
+            ClosePositions(POSITION_TYPE_SELL);
+         }
+         else if(StringFind(newTrend, "DOWN") >= 0)
+         {
+            Print("Closing all BUY positions...");
+            ClosePositions(POSITION_TYPE_BUY);
+         }
       }
    }
    
-   // Execute trade
-   ExecuteTrade(signal);
+   // Get position counts
+   double buyProfit, sellProfit;
+   int buyCount, sellCount;
+   int totalPos = GetAllPositions(buyProfit, sellProfit, buyCount, sellCount);
+   
+   // === STACKING LOGIC ===
+   if(EnableStacking && signal != "HOLD")
+   {
+      if(signal == "BUY" && CanStack("BUY", confidence))
+      {
+         double stackLots = NormalizeDouble(BaseLotSize * StackMultiplier, 2);
+         stackLots = MathMax(SymbolInfoDouble(Symbol(), SYMBOL_VOLUME_MIN), stackLots);
+         
+         if(ExecuteTrade("BUY", stackLots, "Stack_BUY_" + IntegerToString(buyCount + 1)))
+            Print("✅ STACKED BUY #", IntegerToString(buyCount + 1), " @ ", DoubleToString(stackLots, 2), " lots");
+      }
+      else if(signal == "SELL" && CanStack("SELL", confidence))
+      {
+         double stackLots = NormalizeDouble(BaseLotSize * StackMultiplier, 2);
+         stackLots = MathMax(SymbolInfoDouble(Symbol(), SYMBOL_VOLUME_MIN), stackLots);
+         
+         if(ExecuteTrade("SELL", stackLots, "Stack_SELL_" + IntegerToString(sellCount + 1)))
+            Print("✅ STACKED SELL #", IntegerToString(sellCount + 1), " @ ", DoubleToString(stackLots, 2), " lots");
+      }
+   }
+   
+   // === NEW POSITION LOGIC ===
+   if(totalPos >= MaxPositions)
+   {
+      Print("Max positions reached: ", IntegerToString(totalPos));
+      return;
+   }
+   
+   if(confidence < MinConfidence)
+   {
+      Print("Confidence too low: ", IntegerToString(confidence), "%");
+      return;
+   }
+   
+   // Open new position if none in that direction
+   if(signal == "BUY" && buyCount == 0)
+   {
+      if(ExecuteTrade("BUY", BaseLotSize, "Scalp_BUY_" + IntegerToString(confidence)))
+         Print("✅ NEW BUY opened");
+   }
+   else if(signal == "SELL" && sellCount == 0)
+   {
+      if(ExecuteTrade("SELL", BaseLotSize, "Scalp_SELL_" + IntegerToString(confidence)))
+         Print("✅ NEW SELL opened");
+   }
+   
+   // === REVERSAL TRADE ===
+   if(EnableReversal && confidence >= ReversalConfidence)
+   {
+      // If strong BUY signal but have SELL positions
+      if(signal == "BUY" && sellCount > 0 && buyCount == 0)
+      {
+         Print("🔄 Reversal: Closing SELL, Opening BUY");
+         ClosePositions(POSITION_TYPE_SELL);
+         ExecuteTrade("BUY", BaseLotSize, "Reversal_BUY");
+      }
+      // If strong SELL signal but have BUY positions
+      else if(signal == "SELL" && buyCount > 0 && sellCount == 0)
+      {
+         Print("🔄 Reversal: Closing BUY, Opening SELL");
+         ClosePositions(POSITION_TYPE_BUY);
+         ExecuteTrade("SELL", BaseLotSize, "Reversal_SELL");
+      }
+   }
 }
-
 //+------------------------------------------------------------------+
-
