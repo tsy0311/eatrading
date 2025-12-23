@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                              GoldScalpingEA.mq5  |
-//|                    v4.1 - Balanced Settings After Over-Tightening|
-//|                    Fixed: SL too tight caused 67% win rate drop  |
+//|                    v4.2 - Removed overly strict momentum filter  |
+//|                    Balanced SL/TP, quality signals, no stacking  |
 //+------------------------------------------------------------------+
-#property copyright "Gold Scalping System v4.1"
-#property version   "4.10"
+#property copyright "Gold Scalping System v4.2"
+#property version   "4.20"
 #property description "Balanced: Quality signals, reasonable SL, no stacking"
 #property strict
 
@@ -105,13 +105,13 @@ int OnInit()
    }
    
    Print("==================================================");
-   Print("⚡ GOLD SCALPING EA v4.1 - Balanced Quality");
+   Print("⚡ GOLD SCALPING EA v4.2 - Balanced");
    Print("==================================================");
    Print("   SL: ", DoubleToString(ATR_SL_Multiplier, 1), "x ATR (max ", IntegerToString(MaxLossPips), " pips)");
    Print("   TP: ", DoubleToString(ATR_TP_Multiplier, 1), "x ATR (R:R = 1:", DoubleToString(ATR_TP_Multiplier/ATR_SL_Multiplier, 1), ")");
    Print("   Cut Loss: ", IntegerToString(CutLossPips), " pips | BE: +", IntegerToString(BreakevenPips), " pips");
    Print("   Min Confidence: ", IntegerToString(MinConfidence), "% | Trend Aligned: ", RequireTrendAlignment ? "YES" : "NO");
-   Print("   Stacking: ", EnableStacking ? "ON" : "OFF", " | Momentum Filter: ON");
+   Print("   Stacking: ", EnableStacking ? "ON" : "OFF");
    Print("==================================================");
    
    return INIT_SUCCEEDED;
@@ -420,25 +420,6 @@ void ManagePositions(string currentSignal, int signalConf)
 }
 
 //+------------------------------------------------------------------+
-//| Check momentum filter - avoid ranging/weak markets                |
-//+------------------------------------------------------------------+
-bool PassesMomentumFilter()
-{
-   double atr = GetInd(h_atr);
-   double atr_prev = GetInd(h_atr, 0, 5);  // ATR 5 bars ago
-   
-   // Avoid very low volatility (ranging market)
-   double point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
-   if(atr < 20 * point) return false;  // Min 20 pips ATR
-   
-   // Check RSI is not in middle zone (indecisive)
-   double rsi = GetInd(h_rsi);
-   if(rsi > 40 && rsi < 60) return false;  // Avoid 40-60 zone
-   
-   return true;
-}
-
-//+------------------------------------------------------------------+
 //| Check if can open new trade                                       |
 //+------------------------------------------------------------------+
 bool CanOpenTrade(string direction, int confidence, bool trendAligned)
@@ -456,9 +437,6 @@ bool CanOpenTrade(string direction, int confidence, bool trendAligned)
    // Check if already have position in this direction
    ENUM_POSITION_TYPE type = (direction == "BUY") ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
    if(CountPositions(type) > 0) return false;
-   
-   // Momentum filter - avoid weak/ranging markets
-   if(!PassesMomentumFilter()) return false;
    
    // Time filters
    if(UseTimeFilter)
