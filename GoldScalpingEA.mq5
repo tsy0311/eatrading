@@ -14,8 +14,8 @@
 //| INPUT PARAMETERS                                                  |
 //+------------------------------------------------------------------+
 input group "=== TRADE SETTINGS ==="
-input double   LotSize = 0.1;              // Lot Size
-input double   RiskPercent = 1.0;          // Risk % per trade (0 = use fixed lot)
+input double   LotSize = 0.1;              // Lot Size (used when RiskPercent=0)
+input double   RiskPercent = 0;            // Risk % per trade (0 = use fixed LotSize)
 input int      MaxTrades = 3;              // Max concurrent trades
 input int      MagicNumber = 12345;        // Magic Number
 
