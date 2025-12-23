@@ -1,128 +1,175 @@
-# ⚡ Gold SCALPING System for MT5
+# 🤖 Gold Scalping ML System
 
-Complete scalping system with ML training + MetaTrader 5 Expert Advisor.
+Advanced Gold (XAUUSD) trading system with ML-powered regime detection that dynamically adjusts trading parameters.
 
-## 🔄 Two Core Files
+## 🎯 Core Concept
 
-| File | Purpose |
-|------|---------|
-| `GoldPricePrediction_Training.ipynb` | Train ML models in Python |
-| `GoldScalpingEA.mq5` | Execute trades in MT5 |
+Instead of predicting price direction (which is nearly impossible at 50% accuracy), this system:
 
-## 🚀 Quick Start
+1. **Detects Market Regime** (what works well):
+   - 📊 **RANGING**: Tight stops, quick profits, mean-reversion
+   - 📈 **TRENDING**: Wider stops, let profits run, trend-following
+   - ⚡ **VOLATILE**: Be cautious, strict entry criteria
 
-### Step 1: Train Models (Python)
-```bash
-# Run the Jupyter notebook
-jupyter notebook GoldPricePrediction_Training.ipynb
-# Or run all cells in VS Code / Cursor
-```
+2. **Adapts EA Parameters** automatically based on regime
 
-### Step 2: Get Quick Signal (Python)
-```bash
-python quick_predict.py
-python quick_predict.py 2650.50  # with custom price
-```
-
-### Step 3: Run EA in MT5
-1. Copy `GoldScalpingEA.mq5` to `MQL5/Experts/`
-2. Compile in MetaEditor
-3. Attach to XAUUSD chart (H1 recommended)
-4. Enable AutoTrading
-
-## ⚡ Scalping Configuration
-
-| Parameter | Value |
-|-----------|-------|
-| Prediction Horizon | 2 hours |
-| Target Move | 0.2% (20 pips) |
-| Stop Loss | 1.5x ATR |
-| Take Profit | 2x ATR |
-| Min Confidence | 60% |
-
-## 📊 Technical Indicators (Same in Python & MQ5)
-
-| Indicator | Python | MQ5 |
-|-----------|--------|-----|
-| EMA 9/21/50 | ✅ | ✅ |
-| RSI 14 | ✅ | ✅ |
-| RSI 5 (fast) | ✅ | ✅ |
-| MACD 12/26/9 | ✅ | ✅ |
-| Stochastic 14/3 | ✅ | ✅ |
-| Bollinger Bands 20 | ✅ | ✅ |
-| CCI 20 | ✅ | ✅ |
-| ATR 14 | ✅ | ✅ |
-
-## 🎯 Signal Logic
-
-The same logic is used in both Python and MQ5:
-
-```
-BUY Signal when:
-✅ EMA9 > EMA21 (bullish)
-✅ Price > EMA50
-✅ RSI < 30 (oversold) OR RSI > 50
-✅ MACD > Signal line
-✅ Stochastic < 20 (oversold) OR K > D
-✅ Price at lower Bollinger Band
-
-SELL Signal when:
-✅ EMA9 < EMA21 (bearish)
-✅ Price < EMA50
-✅ RSI > 70 (overbought) OR RSI < 50
-✅ MACD < Signal line
-✅ Stochastic > 80 (overbought) OR K < D
-✅ Price at upper Bollinger Band
-```
-
-## 📈 Signal Strength
-
-| Confidence | Indicators | Action |
-|------------|------------|--------|
-| ≥70% | 6+/8 | 🔥 Strong - Trade |
-| 60-70% | 4-5/8 | 📊 Moderate - Consider |
-| <60% | <4/8 | ⚠️ Weak - Skip |
-
-## 📁 Files
+## 📁 Project Structure
 
 ```
 eatrading/
-├── GoldPricePrediction_Training.ipynb  # Train models
-├── GoldScalpingEA.mq5                  # MT5 Expert Advisor
-├── quick_predict.py                    # Quick signal script
-├── GoldEnsemble_*.keras/.joblib        # Trained models
-├── scaler.joblib                       # Feature scaler
-├── ensemble_config.json                # Configuration
-└── XAUUSD_H1_*.csv                     # Price data
+├── src/                        # Python ML code
+│   ├── data_pipeline.py        # Data loading & cleaning
+│   ├── features.py             # Feature engineering
+│   ├── regime_detector.py      # ML model training
+│   └── export_onnx.py          # Export for MT5
+├── models/                     # Trained models (after training)
+│   ├── regime_detector.joblib  # Sklearn model
+│   ├── regime_detector.onnx    # ONNX for MT5
+│   ├── regime_config.json      # Model config
+│   └── RegimeModelConfig.mqh   # MQL5 include file
+├── data/                       # Data files
+├── GoldScalpingEA.mq5          # Original EA (technical only)
+├── GoldScalpingEA_ML.mq5       # ML-enhanced EA
+├── train_regime.py             # Main training script
+├── config.yaml                 # Configuration
+└── requirements.txt            # Python dependencies
 ```
 
-## ⚙️ MQ5 EA Parameters
+## 🚀 Quick Start
 
-```cpp
-// Trade Settings
-LotSize = 0.1              // Fixed lot size
-RiskPercent = 1.0          // Risk % per trade
-MaxTrades = 3              // Max concurrent trades
+### Step 1: Install Dependencies
 
-// Scalping
-ScalpTP_Pips = 20          // Take Profit
-ScalpSL_Pips = 15          // Stop Loss
-ATR_SL_Multiplier = 1.5    // ATR-based SL
-ATR_TP_Multiplier = 2.0    // ATR-based TP
-
-// Signal
-MinConfidence = 60         // Min confidence %
-MinIndicators = 4          // Min indicators agreeing
+```bash
+pip install -r requirements.txt
 ```
 
-## ⚠️ Risk Warning
+### Step 2: Train the Model
 
-Trading involves substantial risk. This system is for educational purposes. Always:
-- Use proper position sizing
-- Set stop losses
-- Never risk more than 1-2% per trade
-- Test on demo account first
+```bash
+python train_regime.py
+```
 
-## 📄 License
+This will:
+- Load XAUUSD H1 data
+- Engineer features
+- Train regime detector
+- Export to ONNX and MQL5 config
 
-MIT License
+### Step 3: Deploy to MT5
+
+1. Copy `GoldScalpingEA_ML.mq5` to `MQL5/Experts/`
+2. Copy `models/RegimeModelConfig.mqh` to `MQL5/Include/` (optional - for ONNX)
+3. Copy `models/regime_detector.onnx` to `MQL5/Files/` (optional - for ONNX)
+4. Compile in MetaEditor
+5. Attach to XAUUSD H1 chart
+
+### Step 4: Backtest
+
+1. Open MT5 Strategy Tester
+2. Select `GoldScalpingEA_ML`
+3. Set period: 2020-2024 (out-of-sample)
+4. Run backtest
+
+## ⚙️ How Regime Detection Works
+
+The model uses these features to classify market state:
+
+| Feature Group | Indicators | Purpose |
+|--------------|------------|---------|
+| Volatility | ATR, Range, StdDev | Detect volatile periods |
+| Trend | ADX, MA Alignment, Slope | Detect trending markets |
+| Momentum | RSI, MACD, Stochastic | Confirm regime |
+| Time | Session, Day of Week | Time-based patterns |
+
+### Regime-Specific Settings
+
+| Parameter | RANGING | TRENDING | VOLATILE |
+|-----------|---------|----------|----------|
+| SL Mult | 1.0x ATR | 1.5x ATR | 2.0x ATR |
+| TP Mult | 1.5x ATR | 2.5x ATR | 2.0x ATR |
+| Trail Start | +8 pips | +15 pips | +20 pips |
+| Min Confidence | 60% | 55% | 70% |
+
+## 📊 EA Input Parameters
+
+### ML Settings
+- `UseMLRegime`: Enable/disable ML regime detection
+- `RegimeUpdateBars`: How often to update regime (default: 5 bars)
+
+### Regime-Specific (for each regime)
+- `Range_ATR_SL`: SL multiplier for ranging
+- `Trend_ATR_TP`: TP multiplier for trending
+- `Volat_MinConf`: Min confidence for volatile
+
+### General
+- Same as original EA (lot size, risk, time filters, etc.)
+
+## 🔧 Customization
+
+### Modify Regime Thresholds
+
+Edit `src/features.py`:
+
+```python
+def add_regime_labels(df, 
+                      lookforward=10,
+                      trend_threshold=0.005,    # Change this
+                      vol_threshold=1.5):       # Or this
+```
+
+### Add New Features
+
+Edit `src/features.py` and add to `get_feature_columns()`.
+
+### Change Model
+
+Edit `src/regime_detector.py` to use different sklearn models.
+
+## 📈 Expected Results
+
+| Metric | Original EA | ML-Enhanced EA |
+|--------|-------------|----------------|
+| Regime Detection | N/A | ~60-65% accuracy |
+| Adaptive SL/TP | Fixed | Dynamic |
+| Win Rate | ~50% | ~50% (same signals) |
+| Profit Factor | Varies | Better risk-adjusted |
+
+**Note**: The ML model doesn't predict direction - it adapts parameters. Signal generation still uses technical indicators.
+
+## ⚠️ Important Notes
+
+1. **ML is for regime detection, NOT direction prediction**
+2. **Always backtest before live trading**
+3. **Past performance ≠ future results**
+4. **Start with demo account**
+
+## 📝 Files Reference
+
+| File | Purpose |
+|------|---------|
+| `GoldScalpingEA.mq5` | Original EA (use this if ML not needed) |
+| `GoldScalpingEA_ML.mq5` | ML-enhanced EA with regime detection |
+| `train_regime.py` | Train the regime detector |
+| `config.yaml` | All configuration in one place |
+
+## 🆘 Troubleshooting
+
+### "skl2onnx not installed"
+```bash
+pip install skl2onnx onnx
+```
+
+### "Data file not found"
+Ensure CSV is in project root or specify with `--data` flag:
+```bash
+python train_regime.py --data path/to/data.csv
+```
+
+### Low regime detection accuracy
+- Try different features (edit `get_feature_columns()`)
+- Adjust regime thresholds
+- Use more training data
+
+---
+
+**Good luck trading! 🚀**

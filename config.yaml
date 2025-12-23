@@ -1,0 +1,99 @@
+# ML Trading System Configuration
+# ================================
+
+# Data Settings
+data:
+  csv_file: "XAUUSD_H1_201501020900_202512221100.csv"
+  symbol: "XAUUSD"
+  timeframe: "H1"
+  
+# Train/Val/Test Split (time-series, no shuffle!)
+split:
+  train_ratio: 0.70   # 70% for training
+  val_ratio: 0.15     # 15% for validation
+  test_ratio: 0.15    # 15% for final testing
+
+# Regime Detection Settings
+regime:
+  lookforward_bars: 10          # Bars to look ahead for labeling
+  trend_threshold: 0.005        # Min return for TRENDING (0.5%)
+  volatility_threshold: 1.5     # Vol ratio for VOLATILE regime
+  update_frequency: 5           # Update regime every N bars
+
+# Regime-Specific Trading Parameters
+trading:
+  ranging:
+    atr_sl_mult: 1.0      # Tight stops
+    atr_tp_mult: 1.5      # Quick profits
+    trailing_start: 8     # Early trail
+    min_confidence: 60    # Standard threshold
+    description: "Mean-reversion, tight stops, quick exits"
+    
+  trending:
+    atr_sl_mult: 1.5      # Wider stops
+    atr_tp_mult: 2.5      # Let profits run
+    trailing_start: 15    # Later trail
+    min_confidence: 55    # Lower threshold (follow trend)
+    description: "Trend following, let winners run"
+    
+  volatile:
+    atr_sl_mult: 2.0      # Wide stops
+    atr_tp_mult: 2.0      # 1:1 ratio
+    trailing_start: 20    # Late trail
+    min_confidence: 70    # Strict threshold
+    description: "High volatility, be cautious"
+
+# Model Settings
+model:
+  type: "ensemble"
+  ensemble_models:
+    - RandomForest
+    - GradientBoosting
+  random_state: 42
+  
+# Feature Groups (for ablation studies)
+features:
+  volatility:
+    - ATR_5_Pct
+    - ATR_10_Pct
+    - ATR_20_Pct
+    - Volatility_5
+    - Volatility_10
+    - Volatility_20
+    - VolatilityRatio
+    - ATRRatio
+    
+  trend:
+    - PriceVsSMA20
+    - PriceVsSMA50
+    - SMA20_Slope
+    - SMA50_Slope
+    - MA_Alignment
+    - ADX
+    - DI_Diff
+    
+  momentum:
+    - RSI
+    - RSI_Extreme
+    - MACD_Hist
+    - Stoch_K
+    - ROC_5
+    - ROC_10
+    - ROC_20
+    
+  time:
+    - Hour
+    - DayOfWeek
+    - IsAsianSession
+    - IsLondonSession
+    - IsNYSession
+    - IsOverlap
+
+# Output Paths
+output:
+  models_dir: "models"
+  model_file: "regime_detector.joblib"
+  onnx_file: "regime_detector.onnx"
+  config_file: "regime_config.json"
+  mql_include: "RegimeModelConfig.mqh"
+

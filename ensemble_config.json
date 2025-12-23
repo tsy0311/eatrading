@@ -54,15 +54,15 @@
   ],
   "num_features": 37,
   "accuracy": {
-    "lstm": 50.088888888888896,
+    "lstm": 50.044444444444444,
     "random_forest": 50.2,
     "gbrt": 50.84444444444445,
     "xgboost": 50.22222222222222,
-    "ensemble": 50.422222222222224
+    "ensemble": 50.53333333333333
   },
   "training_info": {
     "training_samples": 13784,
     "test_samples": 4500,
-    "training_date": "2025-12-23T15:57:44.676890"
+    "training_date": "2025-12-23T16:37:35.316004"
   }
 }
