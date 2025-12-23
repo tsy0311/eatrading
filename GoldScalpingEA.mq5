@@ -120,8 +120,8 @@ int OnInit()
    Print("   Symbol: ", Symbol());
    Print("   Timeframe: ", EnumToString(Period()));
    Print("   Lot Size: ", LotSize);
-   Print("   Min Confidence: ", MinConfidence, "%");
-   Print("="*50);
+   Print("   Min Confidence: ", IntegerToString(MinConfidence), "%");
+   Print("==================================================");
    
    return INIT_SUCCEEDED;
 }
@@ -452,9 +452,9 @@ bool ExecuteTrade(SignalData &signal)
    
    if(result)
    {
-      Print("✅ ", signal.direction, " executed @ ", price, 
-            " | SL: ", signal.sl, " | TP: ", signal.tp,
-            " | Confidence: ", signal.confidence, "%");
+      Print("✅ ", signal.direction, " executed @ ", DoubleToString(price, 2), 
+            " | SL: ", DoubleToString(signal.sl, 2), " | TP: ", DoubleToString(signal.tp, 2),
+            " | Confidence: ", IntegerToString(signal.confidence), "%");
    }
    else
    {
@@ -534,8 +534,8 @@ void OnTick()
    DisplaySignal(signal);
    
    Print("📊 Signal: ", signal.direction, 
-         " | Confidence: ", signal.confidence, "%",
-         " | Indicators: ", signal.indicators);
+         " | Confidence: ", IntegerToString(signal.confidence), "%",
+         " | Indicators: ", IntegerToString(signal.indicators));
    
    // Check if signal is strong enough
    if(signal.direction == "HOLD")
@@ -546,13 +546,13 @@ void OnTick()
    
    if(signal.confidence < MinConfidence)
    {
-      Print("⚠️ Confidence too low: ", signal.confidence, "% < ", MinConfidence, "%");
+      Print("⚠️ Confidence too low: ", IntegerToString(signal.confidence), "% < ", IntegerToString(MinConfidence), "%");
       return;
    }
    
    if(TradeOnlyStrong && signal.indicators < MinIndicators)
    {
-      Print("⚠️ Not enough indicators agreeing: ", signal.indicators, " < ", MinIndicators);
+      Print("⚠️ Not enough indicators agreeing: ", IntegerToString(signal.indicators), " < ", IntegerToString(MinIndicators));
       return;
    }
    
