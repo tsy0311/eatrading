@@ -3,8 +3,7 @@
     "lstm": "GoldEnsemble_LSTM.keras",
     "random_forest": "GoldEnsemble_RF.joblib",
     "gbrt": "GoldEnsemble_GBRT.joblib",
-    "xgboost": "GoldEnsemble_XGB.joblib",
-    "knn": "GoldEnsemble_KNN.joblib"
+    "xgboost": "GoldEnsemble_XGB.joblib"
   },
   "scaler": "scaler.joblib",
   "model_type": "ensemble_classification",
@@ -12,7 +11,7 @@
     "DOWN (SELL)",
     "UP (BUY)"
   ],
-  "window_size": 30,
+  "window_size": 20,
   "timeframe": "H1",
   "feature_columns": [
     "MA_Cross_5_20",
@@ -20,6 +19,7 @@
     "Price_vs_SMA20",
     "Price_vs_SMA50",
     "Trend_Strength",
+    "Scalp_Cross",
     "RSI",
     "RSI_Signal",
     "RSI_Fast",
@@ -28,27 +28,41 @@
     "ROC_5",
     "ROC_10",
     "Momentum_3",
-    "Scalp_Cross",
+    "Stoch_K",
+    "Stoch_D",
+    "Stoch_Signal",
+    "Stoch_Fast",
+    "Williams_R",
+    "CCI",
+    "CCI_Signal",
     "ATR_Pct",
     "BB_Position",
     "Volatility_Ratio",
     "Body",
     "Upper_Shadow",
-    "Lower_Shadow"
+    "Lower_Shadow",
+    "Candle_Size",
+    "Upper_Wick_Ratio",
+    "Lower_Wick_Ratio",
+    "Engulfing",
+    "Consecutive_Up",
+    "Consecutive_Down",
+    "Near_Resistance",
+    "Near_Support",
+    "Dist_From_High",
+    "Dist_From_Low"
   ],
-  "num_features": 20,
-  "num_models": 5,
+  "num_features": 37,
   "accuracy": {
-    "lstm": 49.95,
-    "random_forest": 49.85,
-    "gbrt": 49.95,
-    "xgboost": 50.22,
-    "knn": 50.10,
-    "ensemble": 50.36
+    "lstm": 50.088888888888896,
+    "random_forest": 50.2,
+    "gbrt": 50.84444444444445,
+    "xgboost": 50.22222222222222,
+    "ensemble": 50.422222222222224
   },
   "training_info": {
-    "training_samples": 21670,
-    "test_samples": 6515,
-    "training_date": "2025-12-22T23:09:40.478309"
+    "training_samples": 13784,
+    "test_samples": 4500,
+    "training_date": "2025-12-23T15:57:44.676890"
   }
 }
