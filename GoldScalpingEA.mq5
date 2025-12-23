@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //|                                              GoldScalpingEA.mq5  |
-//|                    v4.2 - Removed overly strict momentum filter  |
-//|                    Balanced SL/TP, quality signals, no stacking  |
+//|                    v5.0 - Aggressive Profit Target (5x Return)   |
+//|                    Let Winners Run, Cut Losers Fast              |
 //+------------------------------------------------------------------+
-#property copyright "Gold Scalping System v4.2"
-#property version   "4.20"
-#property description "Balanced: Quality signals, reasonable SL, no stacking"
+#property copyright "Gold Scalping System v5.0"
+#property version   "5.00"
+#property description "Target: 5x returns. Big wins, small losses."
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -16,58 +16,52 @@
 //+------------------------------------------------------------------+
 input group "=== TRADE SETTINGS ==="
 input double   BaseLotSize = 0.1;          // Base Lot Size
-input double   RiskPercent = 0;            // Risk % (0 = fixed lot)
-input int      MaxPositions = 3;           // Max positions (reduced from 5)
+input int      MaxPositions = 2;           // Max positions (quality over quantity)
 input int      MagicNumber = 12345;        // Magic Number
 
-input group "=== RISK MANAGEMENT (BALANCED) ==="
-input double   ATR_SL_Multiplier = 1.2;    // SL = 1.2x ATR (balanced)
-input double   ATR_TP_Multiplier = 2.0;    // TP = 2.0x ATR (1:1.67 R:R)
-input int      MaxLossPips = 35;           // Maximum loss per trade in pips
-input int      MinRiskReward = 1;          // Minimum Risk:Reward ratio
+input group "=== PROFIT TARGET SYSTEM ==="
+input double   ATR_SL_Multiplier = 0.8;    // Tight SL = 0.8x ATR
+input double   ATR_TP_Multiplier = 2.5;    // Big TP = 2.5x ATR (R:R = 1:3)
+input int      MaxLossPips = 20;           // Max loss 20 pips (TIGHT)
+input int      MinProfitPips = 40;         // Min TP 40 pips (LET IT RUN)
 
-input group "=== EARLY EXIT (BALANCED) ==="
-input bool     EnableEarlyExit = true;     // Enable early exit
-input int      CutLossPips = -15;          // Cut loss at -15 pips (give room)
-input int      BreakevenPips = 12;         // Move to BE at +12 pips
-input bool     ExitOnWeakSignal = true;    // Exit if signal weakens
+input group "=== SMART EXIT ==="
+input bool     EnableTrailing = true;      // Enable trailing stop
+input int      TrailingStart = 20;         // Trail after +20 pips
+input int      TrailingStep = 8;           // Trail by 8 pips
+input int      BreakevenPips = 15;         // Breakeven at +15 pips
+input bool     PartialClose = true;        // Close 50% at first target
+input int      PartialClosePips = 25;      // Partial close at +25 pips
 
-input group "=== TRAILING STOP ==="
-input bool     EnableTrailing = true;      // Enable trailing
-input int      TrailingStart = 15;         // Start at +15 pips
-input int      TrailingStep = 5;           // Trail by 5 pips
-input bool     UseATRTrailing = true;      // Use ATR-based trailing
+input group "=== SIGNAL QUALITY (STRICT) ==="
+input int      MinConfidence = 70;         // HIGH confidence only (70%)
+input bool     RequireStrongTrend = true;  // Only trade strong trends
+input bool     RequireMultiTimeframe = true; // Check higher TF trend
 
-input group "=== STACKING ==="
-input bool     EnableStacking = false;     // DISABLED - focus on quality
-input int      StackAfterPips = 25;        // Stack after +25 pips
-input double   StackMultiplier = 0.3;      // Stack = 0.3x base
-input int      MaxStackLevel = 2;          // Max 2 stacks
+input group "=== TREND FILTER ==="
+input int      EMA_Fast = 8;               // Fast EMA
+input int      EMA_Medium = 21;            // Medium EMA  
+input int      EMA_Slow = 50;              // Slow EMA
+input int      EMA_Trend = 200;            // Trend EMA (H4 equivalent)
 
-input group "=== SIGNAL FILTER (QUALITY) ==="
-input int      MinConfidence = 65;         // Min 65% confidence (stricter)
-input int      StackConfidence = 75;       // Stack needs 75%
-input int      ReversalConfidence = 75;    // Reversal needs 75%
-input bool     RequireTrendAlignment = true; // Require trend + signal alignment
-
-input group "=== TREND REVERSAL ==="
-input bool     EnableReversal = true;      // Trade reversals
-input int      ReversalConfirmBars = 2;    // Confirm bars
-input bool     CloseOnReversal = true;     // Close opposite on reversal
-
-input group "=== INDICATORS ==="
-input int      EMA_Fast = 9;
-input int      EMA_Medium = 21;
-input int      EMA_Slow = 50;
+input group "=== MOMENTUM ==="
 input int      RSI_Period = 14;
+input int      RSI_Overbought = 70;        // Overbought level
+input int      RSI_Oversold = 30;          // Oversold level
 input int      ATR_Period = 14;
 
-input group "=== TIME FILTER ==="
-input bool     UseTimeFilter = false;
-input int      StartHour = 8;
-input int      EndHour = 20;
-input bool     AvoidFriday = true;         // No new trades on Friday
-input int      FridayCloseHour = 18;       // Close all Friday 18:00
+input group "=== SESSION FILTER ==="
+input bool     UseSessionFilter = true;    // Trade only active sessions
+input int      LondonStart = 8;            // London session start
+input int      LondonEnd = 17;             // London session end
+input int      NYStart = 13;               // NY session start
+input int      NYEnd = 21;                 // NY session end
+
+input group "=== RISK CONTROL ==="
+input double   MaxDailyLoss = 3.0;         // Max daily loss % (stop trading)
+input double   MaxDailyProfit = 10.0;      // Daily profit target %
+input bool     AvoidFriday = true;         // No new trades Friday
+input bool     AvoidNews = true;           // Avoid trading near news (manual)
 
 //+------------------------------------------------------------------+
 //| GLOBAL VARIABLES                                                  |
@@ -75,10 +69,13 @@ input int      FridayCloseHour = 18;       // Close all Friday 18:00
 CTrade trade;
 CPositionInfo posInfo;
 
-int h_ema_fast, h_ema_medium, h_ema_slow;
+int h_ema_fast, h_ema_medium, h_ema_slow, h_ema_trend;
 int h_rsi, h_macd, h_atr, h_bb, h_stoch;
+int h_ema_h4;  // Higher timeframe
 
-string prevTrend = "NONE";
+double dailyProfit = 0;
+double dailyStartBalance = 0;
+datetime lastDay = 0;
 
 //+------------------------------------------------------------------+
 //| Initialization                                                    |
@@ -89,29 +86,37 @@ int OnInit()
    trade.SetDeviationInPoints(10);
    trade.SetTypeFilling(ORDER_FILLING_IOC);
    
+   // Current timeframe indicators
    h_ema_fast = iMA(Symbol(), PERIOD_CURRENT, EMA_Fast, 0, MODE_EMA, PRICE_CLOSE);
    h_ema_medium = iMA(Symbol(), PERIOD_CURRENT, EMA_Medium, 0, MODE_EMA, PRICE_CLOSE);
    h_ema_slow = iMA(Symbol(), PERIOD_CURRENT, EMA_Slow, 0, MODE_EMA, PRICE_CLOSE);
+   h_ema_trend = iMA(Symbol(), PERIOD_CURRENT, EMA_Trend, 0, MODE_EMA, PRICE_CLOSE);
    h_rsi = iRSI(Symbol(), PERIOD_CURRENT, RSI_Period, PRICE_CLOSE);
    h_macd = iMACD(Symbol(), PERIOD_CURRENT, 12, 26, 9, PRICE_CLOSE);
    h_atr = iATR(Symbol(), PERIOD_CURRENT, ATR_Period);
    h_stoch = iStochastic(Symbol(), PERIOD_CURRENT, 14, 3, 3, MODE_SMA, STO_LOWHIGH);
    h_bb = iBands(Symbol(), PERIOD_CURRENT, 20, 0, 2.0, PRICE_CLOSE);
    
-   if(h_ema_fast == INVALID_HANDLE || h_rsi == INVALID_HANDLE || h_atr == INVALID_HANDLE)
+   // H4 trend for multi-timeframe
+   h_ema_h4 = iMA(Symbol(), PERIOD_H4, 50, 0, MODE_EMA, PRICE_CLOSE);
+   
+   if(h_ema_fast == INVALID_HANDLE || h_rsi == INVALID_HANDLE)
    {
       Print("Error creating indicators");
       return INIT_FAILED;
    }
    
+   dailyStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+   
    Print("==================================================");
-   Print("⚡ GOLD SCALPING EA v4.2 - Balanced");
+   Print("🚀 GOLD SCALPING EA v5.0 - 5X PROFIT TARGET");
    Print("==================================================");
-   Print("   SL: ", DoubleToString(ATR_SL_Multiplier, 1), "x ATR (max ", IntegerToString(MaxLossPips), " pips)");
-   Print("   TP: ", DoubleToString(ATR_TP_Multiplier, 1), "x ATR (R:R = 1:", DoubleToString(ATR_TP_Multiplier/ATR_SL_Multiplier, 1), ")");
-   Print("   Cut Loss: ", IntegerToString(CutLossPips), " pips | BE: +", IntegerToString(BreakevenPips), " pips");
-   Print("   Min Confidence: ", IntegerToString(MinConfidence), "% | Trend Aligned: ", RequireTrendAlignment ? "YES" : "NO");
-   Print("   Stacking: ", EnableStacking ? "ON" : "OFF");
+   Print("   R:R Target = 1:", DoubleToString(ATR_TP_Multiplier/ATR_SL_Multiplier, 1));
+   Print("   Max Loss: ", IntegerToString(MaxLossPips), " pips");
+   Print("   Min Profit: ", IntegerToString(MinProfitPips), " pips");
+   Print("   Confidence: ", IntegerToString(MinConfidence), "%+");
+   Print("   Strong Trend Required: ", RequireStrongTrend ? "YES" : "NO");
+   Print("   Session Filter: ", UseSessionFilter ? "ON" : "OFF");
    Print("==================================================");
    
    return INIT_SUCCEEDED;
@@ -125,11 +130,13 @@ void OnDeinit(const int reason)
    IndicatorRelease(h_ema_fast);
    IndicatorRelease(h_ema_medium);
    IndicatorRelease(h_ema_slow);
+   IndicatorRelease(h_ema_trend);
    IndicatorRelease(h_rsi);
    IndicatorRelease(h_macd);
    IndicatorRelease(h_atr);
    IndicatorRelease(h_stoch);
    IndicatorRelease(h_bb);
+   IndicatorRelease(h_ema_h4);
    Comment("");
 }
 
@@ -146,7 +153,7 @@ double GetInd(int handle, int buffer = 0, int shift = 0)
 }
 
 //+------------------------------------------------------------------+
-//| Get point value for pip calculations                              |
+//| Pip value for calculations                                        |
 //+------------------------------------------------------------------+
 double PipValue()
 {
@@ -154,110 +161,147 @@ double PipValue()
 }
 
 //+------------------------------------------------------------------+
-//| Get trend with strength                                           |
+//| Check if in active trading session                                |
 //+------------------------------------------------------------------+
-string GetTrend(int &strength)
+bool IsActiveSession()
 {
-   double ema_f = GetInd(h_ema_fast);
-   double ema_m = GetInd(h_ema_medium);
-   double ema_s = GetInd(h_ema_slow);
-   double price = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+   if(!UseSessionFilter) return true;
    
-   strength = 0;
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   int hour = dt.hour;
    
-   // Count bullish/bearish conditions
-   if(ema_f > ema_m) strength++; else strength--;
-   if(ema_m > ema_s) strength++; else strength--;
-   if(price > ema_m) strength++; else strength--;
+   // London or NY session (overlap is best)
+   bool inLondon = (hour >= LondonStart && hour < LondonEnd);
+   bool inNY = (hour >= NYStart && hour < NYEnd);
    
-   if(strength >= 2) return "STRONG_UP";
-   else if(strength == 1) return "UP";
-   else if(strength <= -2) return "STRONG_DOWN";
-   else if(strength == -1) return "DOWN";
-   return "RANGE";
+   return (inLondon || inNY);
 }
 
 //+------------------------------------------------------------------+
-//| Get signal with confidence (stricter version)                     |
+//| Get trend strength (0-5 scale)                                    |
 //+------------------------------------------------------------------+
-void GetSignal(string &direction, int &confidence, bool &trendAligned)
+int GetTrendStrength(string &trendDir)
 {
    double price = SymbolInfoDouble(Symbol(), SYMBOL_BID);
    double ema_f = GetInd(h_ema_fast);
    double ema_m = GetInd(h_ema_medium);
    double ema_s = GetInd(h_ema_slow);
+   double ema_t = GetInd(h_ema_trend);
+   double ema_h4 = GetInd(h_ema_h4);
+   
+   int bullScore = 0;
+   int bearScore = 0;
+   
+   // EMA stacking
+   if(ema_f > ema_m) bullScore++; else bearScore++;
+   if(ema_m > ema_s) bullScore++; else bearScore++;
+   if(ema_s > ema_t) bullScore++; else bearScore++;
+   
+   // Price position
+   if(price > ema_m) bullScore++; else bearScore++;
+   
+   // Higher timeframe alignment
+   if(RequireMultiTimeframe)
+   {
+      if(price > ema_h4) bullScore++; else bearScore++;
+   }
+   
+   if(bullScore > bearScore)
+   {
+      trendDir = "UP";
+      return bullScore;
+   }
+   else
+   {
+      trendDir = "DOWN";
+      return bearScore;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Get high-quality signal                                           |
+//+------------------------------------------------------------------+
+void GetSignal(string &direction, int &confidence, bool &isStrong)
+{
+   double price = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+   double ema_f = GetInd(h_ema_fast);
+   double ema_m = GetInd(h_ema_medium);
+   double ema_s = GetInd(h_ema_slow);
+   double ema_t = GetInd(h_ema_trend);
    double rsi = GetInd(h_rsi);
    double macd = GetInd(h_macd, 0);
    double macd_sig = GetInd(h_macd, 1);
    double stoch = GetInd(h_stoch, 0);
-   double stoch_d = GetInd(h_stoch, 1);
    double bb_upper = GetInd(h_bb, 1);
    double bb_lower = GetInd(h_bb, 2);
+   double bb_mid = GetInd(h_bb, 0);
    
    int buy = 0, sell = 0;
+   isStrong = false;
    
-   // === TREND INDICATORS (weight: 2 each) ===
+   // === TREND ALIGNMENT (most important) ===
+   string trendDir;
+   int trendStrength = GetTrendStrength(trendDir);
    
-   // EMA alignment
-   if(ema_f > ema_m && ema_m > ema_s) { buy += 3; }
-   else if(ema_f < ema_m && ema_m < ema_s) { sell += 3; }
-   else if(ema_f > ema_m) { buy += 1; }
-   else { sell += 1; }
+   if(trendDir == "UP")
+   {
+      buy += trendStrength * 2;  // Weight by strength
+      if(trendStrength >= 4) isStrong = true;
+   }
+   else
+   {
+      sell += trendStrength * 2;
+      if(trendStrength >= 4) isStrong = true;
+   }
    
-   // Price vs EMA
-   if(price > ema_s) buy += 2; else sell += 2;
+   // === MOMENTUM CONFIRMATION ===
    
-   // === MOMENTUM INDICATORS ===
-   
-   // RSI with zones
-   if(rsi < 25) buy += 3;        // Very oversold
-   else if(rsi < 35) buy += 2;   // Oversold
-   else if(rsi > 75) sell += 3;  // Very overbought
-   else if(rsi > 65) sell += 2;  // Overbought
+   // RSI extremes (reversal zones)
+   if(rsi < RSI_Oversold) buy += 3;
+   else if(rsi > RSI_Overbought) sell += 3;
    else if(rsi > 50) buy += 1;
    else sell += 1;
    
-   // MACD
-   if(macd > macd_sig && macd > 0) buy += 2;      // Strong bullish
-   else if(macd > macd_sig) buy += 1;              // Bullish
-   else if(macd < macd_sig && macd < 0) sell += 2; // Strong bearish
-   else sell += 1;                                  // Bearish
+   // MACD momentum
+   if(macd > macd_sig) buy += 2;
+   else sell += 2;
    
-   // Stochastic with confirmation
-   if(stoch < 20 && stoch > stoch_d) buy += 2;    // Oversold + turning up
-   else if(stoch < 30) buy += 1;
-   else if(stoch > 80 && stoch < stoch_d) sell += 2; // Overbought + turning down
-   else if(stoch > 70) sell += 1;
+   // MACD histogram strength
+   double hist = macd - macd_sig;
+   if(hist > 0 && hist > GetInd(h_macd, 0, 1) - GetInd(h_macd, 1, 1))
+      buy += 1;  // Increasing bullish momentum
+   else if(hist < 0 && hist < GetInd(h_macd, 0, 1) - GetInd(h_macd, 1, 1))
+      sell += 1; // Increasing bearish momentum
    
-   // Bollinger Bands
+   // Stochastic in extreme zones
+   if(stoch < 20) buy += 2;
+   else if(stoch > 80) sell += 2;
+   
+   // Bollinger Band position
    if(price < bb_lower) buy += 2;
    else if(price > bb_upper) sell += 2;
+   else if(price < bb_mid) buy += 1;
+   else sell += 1;
    
    // Calculate result
    int total = buy + sell;
-   trendAligned = false;
    
    if(buy > sell)
    {
       direction = "BUY";
       confidence = (int)((double)buy / total * 100);
-      // Check if aligned with trend
-      int str;
-      string trend = GetTrend(str);
-      trendAligned = (StringFind(trend, "UP") >= 0);
    }
    else if(sell > buy)
    {
       direction = "SELL";
       confidence = (int)((double)sell / total * 100);
-      int str;
-      string trend = GetTrend(str);
-      trendAligned = (StringFind(trend, "DOWN") >= 0);
    }
    else
    {
       direction = "HOLD";
       confidence = 50;
+      isStrong = false;
    }
 }
 
@@ -282,23 +326,22 @@ int CountPositions(ENUM_POSITION_TYPE type)
 }
 
 //+------------------------------------------------------------------+
-//| Get total position profit                                         |
+//| Get position profit in pips                                       |
 //+------------------------------------------------------------------+
-double GetPositionProfit(ENUM_POSITION_TYPE type)
+double GetPositionProfitPips(ulong ticket)
 {
-   double profit = 0;
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
-   {
-      if(posInfo.SelectByIndex(i))
-      {
-         if(posInfo.Magic() == MagicNumber && posInfo.Symbol() == Symbol())
-         {
-            if(type == WRONG_VALUE || posInfo.PositionType() == type)
-               profit += posInfo.Profit();
-         }
-      }
-   }
-   return profit;
+   if(!posInfo.SelectByTicket(ticket)) return 0;
+   
+   double pip = PipValue();
+   double openPrice = posInfo.PriceOpen();
+   bool isBuy = (posInfo.PositionType() == POSITION_TYPE_BUY);
+   double currentPrice = isBuy ? SymbolInfoDouble(Symbol(), SYMBOL_BID) 
+                               : SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+   
+   if(isBuy)
+      return (currentPrice - openPrice) / pip;
+   else
+      return (openPrice - currentPrice) / pip;
 }
 
 //+------------------------------------------------------------------+
@@ -315,8 +358,6 @@ void ClosePositions(ENUM_POSITION_TYPE type)
             if(type == WRONG_VALUE || posInfo.PositionType() == type)
             {
                trade.PositionClose(posInfo.Ticket());
-               Print("Closed position: ", posInfo.Profit() >= 0 ? "+" : "", 
-                     DoubleToString(posInfo.Profit(), 2));
             }
          }
       }
@@ -324,12 +365,11 @@ void ClosePositions(ENUM_POSITION_TYPE type)
 }
 
 //+------------------------------------------------------------------+
-//| Manage positions - trailing, breakeven, early exit                |
+//| Manage positions - trailing, breakeven, partial close             |
 //+------------------------------------------------------------------+
-void ManagePositions(string currentSignal, int signalConf)
+void ManagePositions()
 {
    double pip = PipValue();
-   double atr = GetInd(h_atr);
    
    for(int i = PositionsTotal() - 1; i >= 0; i--)
    {
@@ -339,80 +379,68 @@ void ManagePositions(string currentSignal, int signalConf)
       double openPrice = posInfo.PriceOpen();
       double currentSL = posInfo.StopLoss();
       double currentTP = posInfo.TakeProfit();
+      double lots = posInfo.Volume();
       bool isBuy = (posInfo.PositionType() == POSITION_TYPE_BUY);
+      ulong ticket = posInfo.Ticket();
       
-      double currentPrice = isBuy ? SymbolInfoDouble(Symbol(), SYMBOL_BID) 
-                                  : SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+      double profitPips = GetPositionProfitPips(ticket);
       
-      double profitPips = isBuy ? (currentPrice - openPrice) / pip 
-                                : (openPrice - currentPrice) / pip;
-      
-      // === 1. EARLY CUT LOSS ===
-      if(EnableEarlyExit && profitPips <= CutLossPips)
+      // === PARTIAL CLOSE at first target ===
+      if(PartialClose && profitPips >= PartialClosePips && lots > 0.02)
       {
-         // Check if signal reversed
-         if(ExitOnWeakSignal)
+         double closeLots = NormalizeDouble(lots * 0.5, 2);
+         closeLots = MathMax(SymbolInfoDouble(Symbol(), SYMBOL_VOLUME_MIN), closeLots);
+         
+         if(trade.PositionClosePartial(ticket, closeLots))
          {
-            bool shouldExit = false;
-            
-            if(isBuy && currentSignal == "SELL" && signalConf >= 60)
-               shouldExit = true;
-            else if(!isBuy && currentSignal == "BUY" && signalConf >= 60)
-               shouldExit = true;
-            
-            if(shouldExit)
-            {
-               trade.PositionClose(posInfo.Ticket());
-               Print("⚠️ EARLY EXIT at ", DoubleToString(profitPips, 1), " pips - Signal reversed");
-               continue;
-            }
+            Print("✅ Partial close 50% at +", DoubleToString(profitPips, 1), " pips");
          }
       }
       
-      // === 2. MOVE TO BREAKEVEN ===
+      // === MOVE TO BREAKEVEN ===
       if(profitPips >= BreakevenPips)
       {
          double newSL;
          if(isBuy)
          {
-            newSL = openPrice + pip; // 1 pip above entry
+            newSL = openPrice + pip * 2;  // 2 pips profit locked
             if(currentSL < newSL)
             {
-               if(trade.PositionModify(posInfo.Ticket(), newSL, currentTP))
-                  Print("✅ BUY moved to breakeven");
+               trade.PositionModify(ticket, newSL, currentTP);
             }
          }
          else
          {
-            newSL = openPrice - pip; // 1 pip below entry
+            newSL = openPrice - pip * 2;
             if(currentSL > newSL || currentSL == 0)
             {
-               if(trade.PositionModify(posInfo.Ticket(), newSL, currentTP))
-                  Print("✅ SELL moved to breakeven");
+               trade.PositionModify(ticket, newSL, currentTP);
             }
          }
       }
       
-      // === 3. TRAILING STOP ===
+      // === TRAILING STOP ===
       if(EnableTrailing && profitPips >= TrailingStart)
       {
-         double trailDistance = UseATRTrailing ? atr * 0.8 : TrailingStep * pip;
+         double trailDist = TrailingStep * pip;
          double newSL;
          
          if(isBuy)
          {
-            newSL = currentPrice - trailDistance;
+            double bid = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+            newSL = bid - trailDist;
             if(newSL > currentSL + pip)
             {
-               trade.PositionModify(posInfo.Ticket(), newSL, currentTP);
+               trade.PositionModify(ticket, newSL, currentTP);
             }
          }
          else
          {
-            newSL = currentPrice + trailDistance;
+            double ask = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+            newSL = ask + trailDist;
             if(newSL < currentSL - pip || currentSL == 0)
             {
-               trade.PositionModify(posInfo.Ticket(), newSL, currentTP);
+               trade.PositionModify(ticket, newSL, currentTP);
             }
          }
       }
@@ -420,104 +448,68 @@ void ManagePositions(string currentSignal, int signalConf)
 }
 
 //+------------------------------------------------------------------+
-//| Check if can open new trade                                       |
+//| Check daily limits                                                |
 //+------------------------------------------------------------------+
-bool CanOpenTrade(string direction, int confidence, bool trendAligned)
+bool CheckDailyLimits()
 {
-   // Check max positions
-   int total = CountPositions(WRONG_VALUE);
-   if(total >= MaxPositions) return false;
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   datetime today = StringToTime(IntegerToString(dt.year) + "." + 
+                                  IntegerToString(dt.mon) + "." + 
+                                  IntegerToString(dt.day));
    
-   // Check confidence
-   if(confidence < MinConfidence) return false;
-   
-   // Check trend alignment if required
-   if(RequireTrendAlignment && !trendAligned) return false;
-   
-   // Check if already have position in this direction
-   ENUM_POSITION_TYPE type = (direction == "BUY") ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
-   if(CountPositions(type) > 0) return false;
-   
-   // Time filters
-   if(UseTimeFilter)
+   // Reset daily tracking
+   if(today != lastDay)
    {
-      MqlDateTime dt;
-      TimeToStruct(TimeCurrent(), dt);
-      if(dt.hour < StartHour || dt.hour >= EndHour) return false;
+      lastDay = today;
+      dailyStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+      dailyProfit = 0;
    }
    
-   // Friday filter
-   if(AvoidFriday)
+   // Calculate today's P&L
+   double currentBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+   dailyProfit = currentBalance - dailyStartBalance;
+   double dailyProfitPct = (dailyProfit / dailyStartBalance) * 100;
+   
+   // Check daily loss limit
+   if(dailyProfitPct <= -MaxDailyLoss)
    {
-      MqlDateTime dt;
-      TimeToStruct(TimeCurrent(), dt);
-      if(dt.day_of_week == 5) return false;
+      Print("⚠️ Daily loss limit reached: ", DoubleToString(dailyProfitPct, 2), "%");
+      return false;
+   }
+   
+   // Check daily profit target (optional - keep trading)
+   if(dailyProfitPct >= MaxDailyProfit)
+   {
+      Print("🎯 Daily profit target reached: ", DoubleToString(dailyProfitPct, 2), "%");
+      // Continue trading but reduce risk could be added
    }
    
    return true;
 }
 
 //+------------------------------------------------------------------+
-//| Check if can stack                                                |
+//| Execute trade with optimal SL/TP                                  |
 //+------------------------------------------------------------------+
-bool CanStack(string direction, int confidence)
-{
-   if(!EnableStacking) return false;
-   if(confidence < StackConfidence) return false;
-   
-   ENUM_POSITION_TYPE type = (direction == "BUY") ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
-   int currentCount = CountPositions(type);
-   
-   if(currentCount == 0 || currentCount >= MaxStackLevel) return false;
-   
-   // Check if existing position is in profit
-   double pip = PipValue();
-   double minProfit = StackAfterPips * pip;
-   
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
-   {
-      if(posInfo.SelectByIndex(i))
-      {
-         if(posInfo.Magic() == MagicNumber && posInfo.Symbol() == Symbol())
-         {
-            if(posInfo.PositionType() == type)
-            {
-               double openPrice = posInfo.PriceOpen();
-               double currentPrice = (type == POSITION_TYPE_BUY) ? 
-                                     SymbolInfoDouble(Symbol(), SYMBOL_BID) :
-                                     SymbolInfoDouble(Symbol(), SYMBOL_ASK);
-               double profit = (type == POSITION_TYPE_BUY) ? 
-                               currentPrice - openPrice : openPrice - currentPrice;
-               
-               if(profit >= minProfit)
-               {
-                  Print("✅ Stack condition met: +", DoubleToString(profit/pip, 1), " pips");
-                  return true;
-               }
-            }
-         }
-      }
-   }
-   
-   return false;
-}
-
-//+------------------------------------------------------------------+
-//| Execute trade with proper SL/TP                                   |
-//+------------------------------------------------------------------+
-bool ExecuteTrade(string direction, double lots, string comment)
+bool ExecuteTrade(string direction, string comment)
 {
    double atr = GetInd(h_atr);
    double pip = PipValue();
    double price, sl, tp;
    
-   // Calculate SL distance (capped at MaxLossPips)
+   // Calculate SL (tight, capped)
    double slDistance = atr * ATR_SL_Multiplier;
    double maxSL = MaxLossPips * pip;
    if(slDistance > maxSL) slDistance = maxSL;
    
-   // Calculate TP distance (maintain R:R ratio)
-   double tpDistance = slDistance * ATR_TP_Multiplier;
+   // Calculate TP (big, minimum enforced)
+   double tpDistance = atr * ATR_TP_Multiplier;
+   double minTP = MinProfitPips * pip;
+   if(tpDistance < minTP) tpDistance = minTP;
+   
+   // Ensure minimum R:R of 1:2
+   if(tpDistance < slDistance * 2)
+      tpDistance = slDistance * 2.5;
    
    if(direction == "BUY")
    {
@@ -525,11 +517,12 @@ bool ExecuteTrade(string direction, double lots, string comment)
       sl = price - slDistance;
       tp = price + tpDistance;
       
-      if(trade.Buy(lots, Symbol(), price, sl, tp, comment))
+      if(trade.Buy(BaseLotSize, Symbol(), price, sl, tp, comment))
       {
-         Print("✅ BUY @ ", DoubleToString(price, 2), 
-               " SL: ", DoubleToString(sl, 2), " (-", DoubleToString(slDistance/pip, 1), " pips)",
-               " TP: ", DoubleToString(tp, 2), " (+", DoubleToString(tpDistance/pip, 1), " pips)");
+         Print("🟢 BUY @ ", DoubleToString(price, 2));
+         Print("   SL: ", DoubleToString(sl, 2), " (-", DoubleToString(slDistance/pip, 0), " pips)");
+         Print("   TP: ", DoubleToString(tp, 2), " (+", DoubleToString(tpDistance/pip, 0), " pips)");
+         Print("   R:R = 1:", DoubleToString(tpDistance/slDistance, 1));
          return true;
       }
    }
@@ -539,47 +532,49 @@ bool ExecuteTrade(string direction, double lots, string comment)
       sl = price + slDistance;
       tp = price - tpDistance;
       
-      if(trade.Sell(lots, Symbol(), price, sl, tp, comment))
+      if(trade.Sell(BaseLotSize, Symbol(), price, sl, tp, comment))
       {
-         Print("✅ SELL @ ", DoubleToString(price, 2),
-               " SL: ", DoubleToString(sl, 2), " (+", DoubleToString(slDistance/pip, 1), " pips)",
-               " TP: ", DoubleToString(tp, 2), " (-", DoubleToString(tpDistance/pip, 1), " pips)");
+         Print("🔴 SELL @ ", DoubleToString(price, 2));
+         Print("   SL: ", DoubleToString(sl, 2), " (+", DoubleToString(slDistance/pip, 0), " pips)");
+         Print("   TP: ", DoubleToString(tp, 2), " (-", DoubleToString(tpDistance/pip, 0), " pips)");
+         Print("   R:R = 1:", DoubleToString(tpDistance/slDistance, 1));
          return true;
       }
    }
    
-   Print("❌ Trade failed: ", trade.ResultComment());
    return false;
 }
 
 //+------------------------------------------------------------------+
 //| Display info                                                      |
 //+------------------------------------------------------------------+
-void DisplayInfo(string signal, int confidence, string trend, bool aligned)
+void DisplayInfo(string signal, int confidence, bool isStrong, string trend, int trendStr)
 {
-   double buyProfit = GetPositionProfit(POSITION_TYPE_BUY);
-   double sellProfit = GetPositionProfit(POSITION_TYPE_SELL);
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
    int buyCount = CountPositions(POSITION_TYPE_BUY);
    int sellCount = CountPositions(POSITION_TYPE_SELL);
    
    string emoji = (signal == "BUY") ? "🟢" : (signal == "SELL") ? "🔴" : "⚪";
-   string alignStr = aligned ? "✅ ALIGNED" : "⚠️ NOT ALIGNED";
+   string strengthStr = isStrong ? "💪 STRONG" : "📊 Normal";
+   
+   double profitPct = ((balance - 10000) / 10000) * 100;
+   double target5x = 50000;
+   double progress = (balance / target5x) * 100;
    
    Comment(
-      "\n⚡ GOLD SCALPING EA v4.0 - Optimized\n",
+      "\n🚀 GOLD EA v5.0 - 5X PROFIT TARGET\n",
       "══════════════════════════════════════\n",
-      "💰 Price: $", DoubleToString(SymbolInfoDouble(Symbol(), SYMBOL_BID), 2), "\n",
-      "📈 Trend: ", trend, "\n",
+      "💰 Balance: $", DoubleToString(balance, 2), "\n",
+      "📈 Total P/L: ", (profitPct >= 0 ? "+" : ""), DoubleToString(profitPct, 1), "%\n",
+      "🎯 Progress to 5x: ", DoubleToString(progress, 1), "%\n",
       "\n", emoji, " Signal: ", signal, " (", IntegerToString(confidence), "%)\n",
-      "   Trend: ", alignStr, "\n",
-      "\n📊 POSITIONS:\n",
-      "   BUY:  ", IntegerToString(buyCount), " | P/L: $", DoubleToString(buyProfit, 2), "\n",
-      "   SELL: ", IntegerToString(sellCount), " | P/L: $", DoubleToString(sellProfit, 2), "\n",
-      "   Total: $", DoubleToString(buyProfit + sellProfit, 2), "\n",
-      "\n⚙️ SETTINGS:\n",
-      "   SL: ", DoubleToString(ATR_SL_Multiplier, 1), "x ATR (max ", IntegerToString(MaxLossPips), " pips)\n",
-      "   TP: ", DoubleToString(ATR_TP_Multiplier, 1), "x ATR\n",
-      "   Cut Loss: ", IntegerToString(CutLossPips), " pips\n",
+      "   ", strengthStr, " | Trend: ", trend, " (", IntegerToString(trendStr), "/5)\n",
+      "\n📊 Positions: BUY ", IntegerToString(buyCount), " | SELL ", IntegerToString(sellCount), "\n",
+      "\n⚙️ Settings:\n",
+      "   SL: ", IntegerToString(MaxLossPips), " pips max\n",
+      "   TP: ", IntegerToString(MinProfitPips), " pips min\n",
+      "   Min R:R = 1:2.5\n",
       "══════════════════════════════════════"
    );
 }
@@ -589,82 +584,103 @@ void DisplayInfo(string signal, int confidence, string trend, bool aligned)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+   // Manage existing positions every tick
+   ManagePositions();
+   
    // Get signal
    string signal;
    int confidence;
-   bool trendAligned;
-   GetSignal(signal, confidence, trendAligned);
+   bool isStrong;
+   GetSignal(signal, confidence, isStrong);
    
-   int trendStrength;
-   string trend = GetTrend(trendStrength);
+   string trendDir;
+   int trendStrength = GetTrendStrength(trendDir);
    
-   // Display info
-   DisplayInfo(signal, confidence, trend, trendAligned);
+   // Display
+   DisplayInfo(signal, confidence, isStrong, trendDir, trendStrength);
    
-   // Manage existing positions (every tick)
-   ManagePositions(signal, confidence);
-   
-   // Friday close all
-   if(AvoidFriday)
-   {
-      MqlDateTime dt;
-      TimeToStruct(TimeCurrent(), dt);
-      if(dt.day_of_week == 5 && dt.hour >= FridayCloseHour)
-      {
-         if(CountPositions(WRONG_VALUE) > 0)
-         {
-            Print("🕐 Friday close time - closing all positions");
-            ClosePositions(WRONG_VALUE);
-         }
-         return;
-      }
-   }
-   
-   // Check for new bar
+   // Check for new bar only
    static datetime lastBar = 0;
    datetime currentBar = iTime(Symbol(), PERIOD_CURRENT, 0);
    if(currentBar == lastBar) return;
    lastBar = currentBar;
    
-   Print("========================================");
-   Print("New bar | Signal: ", signal, " (", IntegerToString(confidence), 
-         "%) | Trend: ", trend, " | Aligned: ", (trendAligned ? "YES" : "NO"));
+   // === FILTERS ===
    
-   // === TREND REVERSAL ===
-   if(EnableReversal && confidence >= ReversalConfidence)
-   {
-      int buyCount = CountPositions(POSITION_TYPE_BUY);
-      int sellCount = CountPositions(POSITION_TYPE_SELL);
-      
-      if(signal == "BUY" && sellCount > 0 && buyCount == 0 && trendAligned)
-      {
-         Print("🔄 REVERSAL: Closing SELL, opening BUY");
-         ClosePositions(POSITION_TYPE_SELL);
-         ExecuteTrade("BUY", BaseLotSize, "Reversal_BUY");
-         return;
-      }
-      else if(signal == "SELL" && buyCount > 0 && sellCount == 0 && trendAligned)
-      {
-         Print("🔄 REVERSAL: Closing BUY, opening SELL");
-         ClosePositions(POSITION_TYPE_BUY);
-         ExecuteTrade("SELL", BaseLotSize, "Reversal_SELL");
-         return;
-      }
-   }
+   // Daily limits
+   if(!CheckDailyLimits()) return;
    
-   // === STACKING ===
-   if(signal != "HOLD" && CanStack(signal, confidence))
+   // Session filter
+   if(!IsActiveSession())
    {
-      double stackLots = NormalizeDouble(BaseLotSize * StackMultiplier, 2);
-      stackLots = MathMax(SymbolInfoDouble(Symbol(), SYMBOL_VOLUME_MIN), stackLots);
-      ExecuteTrade(signal, stackLots, "Stack_" + signal);
+      Print("Outside active session - no trading");
       return;
    }
    
-   // === NEW TRADE ===
-   if(signal != "HOLD" && CanOpenTrade(signal, confidence, trendAligned))
+   // Friday filter
+   if(AvoidFriday)
    {
-      ExecuteTrade(signal, BaseLotSize, "Scalp_" + signal);
+      MqlDateTime dt;
+      TimeToStruct(TimeCurrent(), dt);
+      if(dt.day_of_week == 5)
+      {
+         Print("Friday - no new trades");
+         return;
+      }
+   }
+   
+   // Max positions
+   int totalPos = CountPositions(WRONG_VALUE);
+   if(totalPos >= MaxPositions)
+   {
+      return;
+   }
+   
+   // === SIGNAL QUALITY CHECKS ===
+   
+   // Minimum confidence
+   if(confidence < MinConfidence)
+   {
+      Print("Signal confidence too low: ", IntegerToString(confidence), "%");
+      return;
+   }
+   
+   // Require strong trend
+   if(RequireStrongTrend && !isStrong)
+   {
+      Print("Waiting for strong trend signal...");
+      return;
+   }
+   
+   // Trend alignment check
+   if((signal == "BUY" && trendDir != "UP") || (signal == "SELL" && trendDir != "DOWN"))
+   {
+      Print("Signal not aligned with trend - skip");
+      return;
+   }
+   
+   // Check if already have position in this direction
+   ENUM_POSITION_TYPE posType = (signal == "BUY") ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
+   if(CountPositions(posType) > 0)
+   {
+      return;
+   }
+   
+   // === EXECUTE TRADE ===
+   Print("========================================");
+   Print("🎯 HIGH QUALITY SIGNAL DETECTED!");
+   Print("   Direction: ", signal);
+   Print("   Confidence: ", IntegerToString(confidence), "%");
+   Print("   Trend: ", trendDir, " (", IntegerToString(trendStrength), "/5)");
+   Print("   Strong: ", isStrong ? "YES" : "NO");
+   
+   if(signal == "BUY")
+   {
+      ExecuteTrade("BUY", "v5_BUY_" + IntegerToString(confidence));
+   }
+   else if(signal == "SELL")
+   {
+      ExecuteTrade("SELL", "v5_SELL_" + IntegerToString(confidence));
    }
 }
 //+------------------------------------------------------------------+
