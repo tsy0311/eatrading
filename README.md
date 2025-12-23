@@ -1,128 +1,113 @@
-# 🥇 Gold Price Prediction - Ensemble ML Trading System
+# ⚡ Gold SCALPING System - Pure Technical Analysis
 
-An advanced machine learning trading system for XAUUSD (Gold) using **5 different ML models** combined into an ensemble for optimal predictions.
+A machine learning trading system for **SCALPING XAUUSD (Gold)** using **PURE TECHNICAL INDICATORS ONLY**.
 
-## 🤖 Models Used
+No fundamental factors - just price action and technical analysis.
+
+## ⚡ Scalping Configuration
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| **Prediction** | 2 hours | Short-term scalping horizon |
+| **Target** | 0.2% (20 pips) | Typical scalp profit target |
+| **Window** | 20 periods | Recent price history |
+| **Fundamentals** | NONE | Pure technical only |
+
+## 🤖 Models Used (5 Ensemble)
 
 | Model | Type | Description |
 |-------|------|-------------|
-| **LSTM** | Deep Learning | Captures sequential patterns in time series |
-| **Random Forest** | Ensemble | Combines multiple decision trees |
-| **GBRT** | Boosting | Sequential error correction |
-| **XGBoost** | Gradient Boosting | High-performance gradient boosting |
-| **KNN** | Instance-Based | Pattern matching with similar historical setups |
+| **LSTM** | Deep Learning | Sequential price patterns |
+| **Random Forest** | Ensemble | Decision tree voting |
+| **GBRT** | Boosting | Gradient boosted trees |
+| **XGBoost** | Boosting | Extreme gradient boosting |
+| **KNN** | Instance-Based | Similar pattern matching |
 
-## 📊 Features
+## 📊 Pure Technical Features
 
-- **30-period sliding window** for pattern recognition (optimized for intraday)
-- **20+ technical indicators** including:
-  - Moving Averages (SMA, EMA crossovers)
-  - RSI with signal zones (Fast & Standard)
-  - MACD components & histogram
-  - Bollinger Bands position
-  - Stochastic Oscillator
-  - Momentum indicators (3, 5, 10 period)
-  - Volatility ratio measures
-  - Candlestick patterns (body, shadows)
-- **Ensemble voting** with confidence scores
-- **Model agreement analysis** (5/5, 4/5, 3/5, etc.)
-- **KNN Pattern Analysis** - finds similar historical setups
-- **Risk management** with ATR-based stop loss/take profit
-- **Dual timeframe** - Scalping (2H) & Mid-term (8H) signals
+### Fast Oscillators
+- Stochastic K/D (14 and 5 period)
+- Williams %R
+- CCI (Commodity Channel Index)
+- RSI (14 and 5 period fast)
+
+### Trend Indicators
+- MA Crossovers (5/20, 10/50)
+- MACD with histogram
+- EMA 3/8 scalp cross
+
+### Price Action
+- Candlestick patterns (engulfing, wicks)
+- Body/shadow ratios
+- Consecutive up/down candles
+- Support/Resistance levels
+
+### Volatility
+- ATR percentage
+- Bollinger Band position
+- Volatility ratio
 
 ## 🎯 Output
 
-For each signal, the system provides:
-
 ```
-📅 Date: 2025-12-22 11:00:00
-💰 Current Price: $2620.50
-📊 Volatility: 1.12x average
-🎯 TRADE TYPE: 🔄 MIXED
+⚡ SCALPING SIGNAL
 
-🟢 SIGNAL: BUY (Long Position)
-   Confidence: 97.0%
-   Model Agreement: 5/5
+📅 Time: 2025-12-23 14:00:00
+💰 Price: $2620.50
 
-📊 BUY PLAN:
-   ├── Entry Price:      $2620.50
-   ├── Stop Loss:        $2605.25 (-$15.25)
-   ├── Take Profit 1:    $2635.75 (+$15.25) [1:1 RR]
-   ├── Take Profit 2:    $2651.00 (+$30.50) [1:2 RR]
-   └── Take Profit 3:    $2666.25 (+$45.75) [1:3 RR]
+🟢 BUY SIGNAL
+   Confidence: 78%
+   Model Agreement: 4/5
 
-🔍 KNN PATTERN ANALYSIS:
-   Similar patterns: 10 found
-   Historical win rate: 90%
-   Pattern suggestion: BUY
+📊 SCALP PLAN:
+   Entry:      $2620.50
+   Stop Loss:  $2615.25 (-5.25)
+   Take Profit: $2625.75 (+5.25)
 
-📈 Signal Strength: 🔥 VERY STRONG (5/5)
+⚡ Signal Strength: STRONG
 ```
 
 ## 📁 Files
 
-### Training Notebook
-- `GoldPricePrediction_Training.ipynb` - Main Jupyter notebook
-
-### Quick Prediction
-- `quick_predict.py` - Get instant signal without retraining
-
-### Saved Models (5 models)
-- `GoldEnsemble_LSTM.keras` - LSTM neural network
-- `GoldEnsemble_RF.joblib` - Random Forest
-- `GoldEnsemble_GBRT.joblib` - Gradient Boosted Trees
-- `GoldEnsemble_XGB.joblib` - XGBoost
-- `GoldEnsemble_KNN.joblib` - K-Nearest Neighbors
-
-### Configuration
-- `ensemble_config.json` - Model configuration
-- `scaler.joblib` - Feature scaler
-
-### Data
-- `XAUUSD_H1_*.csv` - Historical price data (H1 timeframe)
+| File | Description |
+|------|-------------|
+| `GoldPricePrediction_Training.ipynb` | Main training notebook |
+| `quick_predict.py` | Get instant signal |
+| `GoldEnsemble_*.keras/.joblib` | Trained models |
+| `scaler.joblib` | Feature scaler |
 
 ## 🚀 Quick Start
 
-### Option 1: Quick Prediction (Recommended)
+### Get Instant Signal
 ```bash
 python quick_predict.py
 ```
-This loads pre-trained models and gives you an instant signal!
 
-### Option 2: Full Training
-1. **Install dependencies:**
-```bash
-pip install numpy pandas matplotlib plotly scikit-learn tensorflow xgboost joblib
-```
-
-2. **Run the notebook:**
-   - Open `GoldPricePrediction_Training.ipynb`
-   - Run all cells (Ctrl+Shift+Enter)
-
-3. **Get predictions:**
-   - Check Step 16 for live trading signals
-   - Use signals with ≥60% confidence and 4+/5 model agreement
+### Full Training
+1. Open `GoldPricePrediction_Training.ipynb`
+2. Run all cells (Ctrl+Shift+Enter)
+3. Check signals in final cell
 
 ## 📈 Signal Interpretation
 
-| Strength | Confidence | Agreement | Recommendation |
-|----------|------------|-----------|----------------|
-| 🔥 VERY STRONG | ≥80% | 5/5 | High probability trade |
-| 💪 STRONG | ≥70% | 4/5 | Good opportunity |
-| 📊 MODERATE | ≥60% | 3/5 | Consider with caution |
-| ⚠️ WEAK | <60% | <3/5 | Wait for better signal |
+| Strength | Confidence | Agreement | Action |
+|----------|------------|-----------|--------|
+| 🔥 STRONG | ≥70% | 4-5/5 | Take the trade |
+| 📊 MODERATE | 60-70% | 3/5 | Consider carefully |
+| ⚠️ WEAK | <60% | <3/5 | Skip or wait |
 
-## 🎯 Trading Style Support
+## ⚠️ Scalping Tips
 
-This system is optimized for **Mid-Intraday Trading**:
-- **Scalping**: 2-hour prediction horizon, 0.15% threshold
-- **Mid-term**: 8-hour prediction horizon, 0.30% threshold
-- **Mixed**: Adapts based on current volatility
+1. **Trade during high volume** - More movement
+2. **Use tight stops** - Scalping = small losses
+3. **Quick exits** - Don't hold scalp trades long
+4. **Spread matters** - Use broker with low spreads
+5. **Avoid news times** - Pure technical only
 
 ## ⚠️ Disclaimer
 
-This system is for educational and research purposes only. Trading financial instruments involves substantial risk of loss. Past performance is not indicative of future results. Always use proper risk management and never trade with money you cannot afford to lose.
+This system is for educational purposes only. Trading involves substantial risk. Past performance doesn't guarantee future results. Never trade money you can't afford to lose.
 
 ## 📄 License
 
-MIT License - Feel free to use and modify for your needs.
+MIT License - Use and modify freely.

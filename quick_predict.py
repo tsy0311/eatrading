@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-🥇 Gold Trading - Quick Prediction Script
+⚡ Gold SCALPING - Quick Prediction Script
 ==========================================
-Load pre-trained models and get instant trading signals!
+Pure Technical Analysis - NO Fundamentals!
 
 Usage: python quick_predict.py
 """
@@ -22,7 +22,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 def load_models():
     """Load all pre-trained models"""
     print("="*60)
-    print("🔄 Loading Pre-trained Models...")
+    print("⚡ Loading SCALPING Models...")
     print("="*60)
     
     models = {}
@@ -79,10 +79,12 @@ def load_config():
     with open('ensemble_config.json', 'r') as f:
         return json.load(f)
 
-def add_technical_indicators(df):
-    """Add technical indicators to dataframe"""
-    # Moving Averages
+def add_scalping_indicators(df):
+    """Add PURE TECHNICAL indicators for scalping - NO fundamentals"""
+    
+    # ========== MOVING AVERAGES (Short-term) ==========
     df['SMA_5'] = df['Price'].rolling(5).mean()
+    df['SMA_10'] = df['Price'].rolling(10).mean()
     df['SMA_20'] = df['Price'].rolling(20).mean()
     df['SMA_50'] = df['Price'].rolling(50).mean()
     df['EMA_3'] = df['Price'].ewm(span=3).mean()
@@ -90,31 +92,29 @@ def add_technical_indicators(df):
     
     # MA Crossovers
     df['MA_Cross_5_20'] = (df['SMA_5'] > df['SMA_20']).astype(int)
-    df['MA_Cross_10_50'] = (df['Price'].rolling(10).mean() > df['SMA_50']).astype(int)
+    df['MA_Cross_10_50'] = (df['SMA_10'] > df['SMA_50']).astype(int)
+    df['Scalp_Cross'] = (df['EMA_3'] > df['EMA_8']).astype(int)
     
     # Price vs SMAs
     df['Price_vs_SMA20'] = (df['Price'] - df['SMA_20']) / df['SMA_20']
     df['Price_vs_SMA50'] = (df['Price'] - df['SMA_50']) / df['SMA_50']
-    
-    # Trend Strength
     df['Trend_Strength'] = (df['SMA_5'] - df['SMA_50']) / df['SMA_50']
     
-    # RSI
+    # ========== RSI (Standard + Fast) ==========
     delta = df['Price'].diff()
     gain = delta.where(delta > 0, 0).rolling(14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-    rs = gain / loss
+    rs = gain / (loss + 1e-10)
     df['RSI'] = 100 - (100 / (1 + rs))
-    df['RSI'] = df['RSI'] / 100  # Normalize
-    df['RSI_Signal'] = np.where(df['RSI'] < 0.3, 1, np.where(df['RSI'] > 0.7, -1, 0))
+    df['RSI_Signal'] = np.where(df['RSI'] < 30, 1, np.where(df['RSI'] > 70, -1, 0))
     
-    # Fast RSI
+    # Fast RSI (5-period)
     gain_fast = delta.where(delta > 0, 0).rolling(5).mean()
     loss_fast = (-delta.where(delta < 0, 0)).rolling(5).mean()
-    rs_fast = gain_fast / loss_fast
-    df['RSI_Fast'] = (100 - (100 / (1 + rs_fast))) / 100
+    rs_fast = gain_fast / (loss_fast + 1e-10)
+    df['RSI_Fast'] = 100 - (100 / (1 + rs_fast))
     
-    # MACD
+    # ========== MACD ==========
     ema12 = df['Price'].ewm(span=12).mean()
     ema26 = df['Price'].ewm(span=26).mean()
     macd = ema12 - ema26
@@ -122,17 +122,34 @@ def add_technical_indicators(df):
     df['MACD_Cross'] = (macd > signal).astype(int)
     df['MACD_Histogram'] = (macd - signal) / df['Price']
     
-    # ROC
+    # ========== ROC & MOMENTUM ==========
     df['ROC_5'] = df['Price'].pct_change(5)
     df['ROC_10'] = df['Price'].pct_change(10)
-    
-    # Momentum
     df['Momentum_3'] = df['Price'].pct_change(3)
     
-    # Scalp Cross
-    df['Scalp_Cross'] = (df['EMA_3'] > df['EMA_8']).astype(int)
+    # ========== STOCHASTIC (Key for Scalping) ==========
+    low_14 = df['Low'].rolling(14).min()
+    high_14 = df['High'].rolling(14).max()
+    df['Stoch_K'] = 100 * (df['Price'] - low_14) / (high_14 - low_14 + 1e-10)
+    df['Stoch_D'] = df['Stoch_K'].rolling(3).mean()
+    df['Stoch_Signal'] = np.where(df['Stoch_K'] > df['Stoch_D'], 1, -1)
     
-    # ATR
+    # Fast Stochastic
+    low_5 = df['Low'].rolling(5).min()
+    high_5 = df['High'].rolling(5).max()
+    df['Stoch_Fast'] = 100 * (df['Price'] - low_5) / (high_5 - low_5 + 1e-10)
+    
+    # ========== WILLIAMS %R ==========
+    df['Williams_R'] = -100 * (high_14 - df['Price']) / (high_14 - low_14 + 1e-10)
+    
+    # ========== CCI ==========
+    typical_price = (df['High'] + df['Low'] + df['Price']) / 3
+    sma_tp = typical_price.rolling(20).mean()
+    mad = typical_price.rolling(20).apply(lambda x: np.abs(x - x.mean()).mean())
+    df['CCI'] = (typical_price - sma_tp) / (0.015 * mad + 1e-10)
+    df['CCI_Signal'] = np.where(df['CCI'] > 100, -1, np.where(df['CCI'] < -100, 1, 0))
+    
+    # ========== ATR & VOLATILITY ==========
     high_low = df['High'] - df['Low']
     high_close = abs(df['High'] - df['Price'].shift())
     low_close = abs(df['Low'] - df['Price'].shift())
@@ -143,17 +160,43 @@ def add_technical_indicators(df):
     # Bollinger Bands
     bb_mid = df['Price'].rolling(20).mean()
     bb_std = df['Price'].rolling(20).std()
-    df['BB_Position'] = (df['Price'] - bb_mid) / (2 * bb_std)
+    df['BB_Position'] = (df['Price'] - bb_mid) / (2 * bb_std + 1e-10)
     
     # Volatility Ratio
-    df['Volatility'] = df['Price'].rolling(10).std()
-    df['Volatility_Avg'] = df['Price'].rolling(50).std()
-    df['Volatility_Ratio'] = df['Volatility'] / df['Volatility_Avg']
+    df['Volatility'] = df['ATR_Pct'].rolling(10).mean()
+    df['Volatility_Ratio'] = df['ATR_Pct'] / (df['Volatility'] + 1e-10)
     
-    # Candlestick patterns
+    # ========== PRICE ACTION ==========
     df['Body'] = (df['Price'] - df['Open']) / df['Open']
     df['Upper_Shadow'] = (df['High'] - df[['Open', 'Price']].max(axis=1)) / df['Open']
     df['Lower_Shadow'] = (df[['Open', 'Price']].min(axis=1) - df['Low']) / df['Open']
+    
+    # Candle size
+    df['Candle_Size'] = abs(df['Price'] - df['Open']) / (df['ATR'] + 1e-10)
+    
+    # Wick ratios
+    candle_range = df['High'] - df['Low'] + 1e-10
+    df['Upper_Wick_Ratio'] = (df['High'] - df[['Open', 'Price']].max(axis=1)) / candle_range
+    df['Lower_Wick_Ratio'] = (df[['Open', 'Price']].min(axis=1) - df['Low']) / candle_range
+    
+    # Engulfing pattern
+    df['Prev_Body'] = (df['Price'].shift(1) - df['Open'].shift(1)).abs()
+    df['Curr_Body'] = (df['Price'] - df['Open']).abs()
+    df['Up_Candle'] = (df['Price'] > df['Open']).astype(int)
+    df['Engulfing'] = ((df['Curr_Body'] > df['Prev_Body'] * 1.5) & 
+                       (df['Up_Candle'] != df['Up_Candle'].shift(1))).astype(int)
+    
+    # Consecutive candles
+    df['Consecutive_Up'] = df['Up_Candle'].rolling(3).sum()
+    df['Consecutive_Down'] = 3 - df['Consecutive_Up']
+    
+    # ========== SUPPORT/RESISTANCE ==========
+    df['Recent_High'] = df['High'].rolling(10).max()
+    df['Recent_Low'] = df['Low'].rolling(10).min()
+    df['Near_Resistance'] = (df['Price'] > df['Recent_High'] * 0.998).astype(int)
+    df['Near_Support'] = (df['Price'] < df['Recent_Low'] * 1.002).astype(int)
+    df['Dist_From_High'] = (df['Recent_High'] - df['Price']) / df['Price']
+    df['Dist_From_Low'] = (df['Price'] - df['Recent_Low']) / df['Price']
     
     return df
 
@@ -163,11 +206,14 @@ def prepare_latest_data(df, config, scaler):
     feature_columns = config['feature_columns']
     
     # Add indicators
-    df = add_technical_indicators(df)
+    df = add_scalping_indicators(df)
     df = df.dropna()
     
+    # Filter to available features
+    available_features = [col for col in feature_columns if col in df.columns]
+    
     # Get latest window
-    latest = df[feature_columns].iloc[-window_size:].values
+    latest = df[available_features].iloc[-window_size:].values
     
     # Scale
     if scaler:
@@ -175,7 +221,7 @@ def prepare_latest_data(df, config, scaler):
     else:
         latest_scaled = latest
     
-    return latest_scaled, df.iloc[-1]
+    return latest_scaled, df.iloc[-1], len(available_features)
 
 def get_predictions(models, data_3d, data_flat, num_features=20):
     """Get predictions from all models"""
@@ -187,12 +233,20 @@ def get_predictions(models, data_3d, data_flat, num_features=20):
             if name == 'LSTM':
                 proba = model.predict(data_3d, verbose=0)[0]
             elif name in ['RandomForest', 'XGBoost', 'KNN']:
-                # Use last 20 timesteps (400 features = 20 * 20)
-                data_tree = data_flat[:, -(20 * num_features):]
+                # Use appropriate number of features
+                expected_features = 20 * num_features  # window * features
+                if data_flat.shape[1] >= expected_features:
+                    data_tree = data_flat[:, -expected_features:]
+                else:
+                    data_tree = data_flat
                 proba = model.predict_proba(data_tree)[0]
             elif name == 'GBRT':
-                # GBRT uses reduced features (last 10 timesteps = 200 features)
-                data_reduced = data_flat[:, -(10 * num_features):]
+                # GBRT uses reduced features
+                expected_features = 10 * num_features
+                if data_flat.shape[1] >= expected_features:
+                    data_reduced = data_flat[:, -expected_features:]
+                else:
+                    data_reduced = data_flat
                 proba = model.predict_proba(data_reduced)[0]
             
             pred = np.argmax(proba)
@@ -222,7 +276,7 @@ def ensemble_vote(predictions, probabilities):
 
 def main():
     print("\n" + "="*60)
-    print("🥇 GOLD TRADING - QUICK PREDICTION")
+    print("⚡ GOLD SCALPING - PURE TECHNICAL SIGNAL")
     print("="*60 + "\n")
     
     # Check if data file exists
@@ -242,7 +296,7 @@ def main():
     
     # Load and prepare data
     print("\n" + "="*60)
-    print("📊 Loading Latest Data...")
+    print("📊 Analyzing Price Action...")
     print("="*60)
     
     df = pd.read_csv(csv_file, sep='\t')
@@ -255,84 +309,83 @@ def main():
     df = df.sort_values('Date').reset_index(drop=True)
     
     # Prepare latest window
-    latest_scaled, latest_row = prepare_latest_data(df, config, scaler)
+    latest_scaled, latest_row, num_features = prepare_latest_data(df, config, scaler)
     
     # Reshape for models
     data_3d = latest_scaled.reshape(1, config['window_size'], -1)
     data_flat = latest_scaled.flatten().reshape(1, -1)
     
     # Get predictions
-    predictions, probabilities = get_predictions(models, data_3d, data_flat)
+    predictions, probabilities = get_predictions(models, data_3d, data_flat, num_features)
     
     # Ensemble vote
     ensemble_pred, ensemble_conf, agreement = ensemble_vote(predictions, probabilities)
     
-    # Get ATR for stop loss/take profit
-    df_with_indicators = add_technical_indicators(df.copy())
+    # Get ATR for stop loss/take profit (scalping = tight)
+    df_with_indicators = add_scalping_indicators(df.copy())
     current_atr = df_with_indicators['ATR'].iloc[-1]
     current_price = latest_row['Price']
     
     # Print results
     print("\n" + "="*60)
-    print("💹 TRADING SIGNAL")
+    print("⚡ SCALPING SIGNAL (Pure Technical)")
     print("="*60)
     
     signal_map = {0: ('🔴 SELL', 'Short'), 1: ('🟢 BUY', 'Long')}
     signal_text, position = signal_map.get(ensemble_pred, ('⚪ HOLD', 'None'))
     
-    print(f"\n📅 Date: {latest_row['Date']}")
-    print(f"💰 Current Price: ${current_price:.2f}")
+    print(f"\n📅 Time: {latest_row['Date']}")
+    print(f"💰 Price: ${current_price:.2f}")
     
-    print(f"\n{signal_text} ({position} Position)")
+    print(f"\n{signal_text} ({position})")
     print(f"   Confidence: {ensemble_conf*100:.1f}%")
     print(f"   Model Agreement: {agreement}/{len(models)}")
     
-    print("\n📊 MODEL PREDICTIONS:")
+    print("\n📊 MODEL BREAKDOWN:")
     print("-"*40)
     for name, pred in predictions.items():
-        direction = "DOWN (SELL)" if pred == 0 else "UP (BUY)"
+        direction = "SELL ↓" if pred == 0 else "BUY ↑"
         conf = max(probabilities[name]) * 100
         print(f"   {name:<15}: {direction} ({conf:.1f}%)")
     
-    # Trading plan
+    # Scalping plan (tight stops)
+    scalp_sl = current_atr * 1.0  # 1x ATR stop loss (tight for scalping)
+    scalp_tp = current_atr * 1.5  # 1.5x ATR take profit (1:1.5 RR)
+    
     print("\n" + "="*60)
-    print(f"📋 TRADING PLAN ({signal_text})")
+    print(f"⚡ SCALP PLAN ({signal_text})")
     print("="*60)
     
     if ensemble_pred == 1:  # BUY
-        sl = current_price - (current_atr * 1.5)
-        tp1 = current_price + (current_atr * 2)
-        tp2 = current_price + (current_atr * 3)
-        tp3 = current_price + (current_atr * 4)
+        sl = current_price - scalp_sl
+        tp = current_price + scalp_tp
         print(f"   Entry:       ${current_price:.2f}")
-        print(f"   Stop Loss:   ${sl:.2f} (-${current_price-sl:.2f})")
-        print(f"   Take Profit 1: ${tp1:.2f} (+${tp1-current_price:.2f})")
-        print(f"   Take Profit 2: ${tp2:.2f} (+${tp2-current_price:.2f})")
-        print(f"   Take Profit 3: ${tp3:.2f} (+${tp3-current_price:.2f})")
+        print(f"   Stop Loss:   ${sl:.2f} (-${scalp_sl:.2f})")
+        print(f"   Take Profit: ${tp:.2f} (+${scalp_tp:.2f})")
     else:  # SELL
-        sl = current_price + (current_atr * 1.5)
-        tp1 = current_price - (current_atr * 2)
-        tp2 = current_price - (current_atr * 3)
-        tp3 = current_price - (current_atr * 4)
+        sl = current_price + scalp_sl
+        tp = current_price - scalp_tp
         print(f"   Entry:       ${current_price:.2f}")
-        print(f"   Stop Loss:   ${sl:.2f} (+${sl-current_price:.2f})")
-        print(f"   Take Profit 1: ${tp1:.2f} (-${current_price-tp1:.2f})")
-        print(f"   Take Profit 2: ${tp2:.2f} (-${current_price-tp2:.2f})")
-        print(f"   Take Profit 3: ${tp3:.2f} (-${current_price-tp3:.2f})")
+        print(f"   Stop Loss:   ${sl:.2f} (+${scalp_sl:.2f})")
+        print(f"   Take Profit: ${tp:.2f} (-${scalp_tp:.2f})")
+    
+    print(f"   Risk/Reward: 1:1.5")
     
     # Signal strength
-    if agreement >= 5 and ensemble_conf >= 0.8:
-        strength = "🔥 VERY STRONG"
-    elif agreement >= 4 and ensemble_conf >= 0.7:
-        strength = "💪 STRONG"
+    if agreement >= 4 and ensemble_conf >= 0.7:
+        strength = "🔥 STRONG - TAKE IT"
     elif agreement >= 3 and ensemble_conf >= 0.6:
-        strength = "📊 MODERATE"
+        strength = "📊 MODERATE - CONSIDER"
     else:
-        strength = "⚠️ WEAK"
+        strength = "⚠️ WEAK - SKIP"
     
-    print(f"\n📈 Signal Strength: {strength} ({agreement}/{len(models)} models)")
+    print(f"\n⚡ Signal Strength: {strength}")
+    print("="*60)
+    print("\n💡 Scalping Tips:")
+    print("   • Trade during high volume sessions")
+    print("   • Exit quickly - don't hold scalps")
+    print("   • Avoid news events (pure technical only)")
     print("="*60)
 
 if __name__ == "__main__":
     main()
-
