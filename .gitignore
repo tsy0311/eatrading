@@ -24,6 +24,9 @@ scaler.joblib
 # Large data files
 data/*.csv
 
+# Backtest reports
+*.xlsx
+
 # IDE
 .idea/
 .vscode/
